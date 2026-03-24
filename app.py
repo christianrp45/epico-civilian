@@ -25,11 +25,21 @@ with st.sidebar:
                     # 2. Chama o nosso Robô para fazer a faxina pesada e gerar o arquivo limpo
                     processar_inlog("temp_inlog.csv", "dados_coleta.xlsx")
                     
-                    # 3. Apaga o ficheiro temporário
+                  # 3. Apaga o ficheiro temporário
                     os.remove("temp_inlog.csv")
                     
                     st.success("✅ Padrão Ouro gerado com sucesso!")
-                    st.info("👉 O ficheiro 'dados_coleta.xlsx' foi atualizado. Pode carregá-lo no ecrã principal.")
+                    
+                    # 📥 LÊ O ARQUIVO QUE ESTÁ NA NUVEM E CRIA O BOTÃO DE DOWNLOAD
+                    with open("dados_coleta.xlsx", "rb") as file:
+                        btn = st.download_button(
+                            label="📥 Baixar Padrão Ouro (Excel)",
+                            data=file,
+                            file_name="dados_coleta.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            use_container_width=True
+                        )
+                    st.info("👉 Baixe o arquivo acima e jogue na tela central da plataforma.")
                     
                 except Exception as e:
                     st.error(f"Ups! Ocorreu um erro ao processar: {e}")
