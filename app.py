@@ -1,4 +1,4 @@
-﻿import os
+import os
 import streamlit as st
 from limpador_inlog import processar_inlog
 from kpis import load_dataset, get_filter_options
@@ -25,7 +25,7 @@ with st.sidebar:
                     # 2. Chama o nosso Robô para fazer a faxina pesada e gerar o arquivo limpo
                     processar_inlog("temp_inlog.csv", "dados_coleta.xlsx")
                     
-                  # 3. Apaga o ficheiro temporário
+                    # 3. Apaga o ficheiro temporário
                     os.remove("temp_inlog.csv")
                     
                     st.success("✅ Padrão Ouro gerado com sucesso!")
@@ -85,7 +85,13 @@ if uploaded is not None:
         if "perfis_filtros" not in st.session_state:
             st.session_state["perfis_filtros"] = {}
 
+        # --- RAIO X PERFEITAMENTE ALINHADO ---
         st.success(f"Base carregada com sucesso: {uploaded.name}")
+        
+        st.warning("🕵️‍♂️ Colunas que o Streamlit está enxergando agora:")
+        st.write(df.columns.tolist())
+        # --------------------------------------
+
     except Exception as exc:
         st.error(f"Não foi possível carregar o arquivo: {exc}")
 
