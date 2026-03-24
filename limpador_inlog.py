@@ -134,6 +134,7 @@ def processar_inlog(caminho_bruto, caminho_saida):
     def calc_moda(x): return x.mode()[0] if not x.mode().empty else np.nan
     
     padrao_ouro = df.groupby('Setor').agg({
+        'Turno': calc_moda,
         'Toneladas': 'mean',
         'Km_Total': 'mean',
         'Km_Produtivo': 'mean',

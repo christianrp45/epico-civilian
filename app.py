@@ -196,4 +196,3 @@ st.markdown(
 - todas as páginas usam a mesma base e os mesmos filtros
 """
 )
-# Atualizacao God Mode
