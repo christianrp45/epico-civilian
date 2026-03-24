@@ -1,28 +1,56 @@
-﻿import streamlit as st
+﻿import os
+import streamlit as st
+from limpador_inlog import processar_inlog
 from kpis import load_dataset, get_filter_options
 
 st.set_page_config(page_title="EPICO Platform", page_icon="🚛", layout="wide")
 
+# ==========================================
+# ⚙️ BARRA LATERAL: ADMINISTRAÇÃO (GOD MODE)
+# ==========================================
+with st.sidebar:
+    st.header("⚙️ Administração (ETL)")
+    st.caption("Carregue o relatório bruto do Inlog. O sistema fará a limpeza, removerá anomalias e criará o Padrão Ouro.")
+    
+    ficheiro_inlog = st.file_uploader("1. Carregar Inlog Bruto (CSV)", type=['csv'], key="upload_inlog_bruto")
+
+    if ficheiro_inlog is not None:
+        if st.button("🚀 Processar Dados Brutos", use_container_width=True):
+            with st.spinner("A aplicar algoritmos de limpeza e inteligência..."):
+                try:
+                    # 1. Guarda o ficheiro carregado temporariamente no servidor
+                    with open("temp_inlog.csv", "wb") as f:
+                        f.write(ficheiro_inlog.getbuffer())
+                    
+                    # 2. Chama o nosso Robô para fazer a faxina pesada e gerar o arquivo limpo
+                    processar_inlog("temp_inlog.csv", "dados_coleta.xlsx")
+                    
+                    # 3. Apaga o ficheiro temporário
+                    os.remove("temp_inlog.csv")
+                    
+                    st.success("✅ Padrão Ouro gerado com sucesso!")
+                    st.info("👉 O ficheiro 'dados_coleta.xlsx' foi atualizado. Pode carregá-lo no ecrã principal.")
+                    
+                except Exception as e:
+                    st.error(f"Ups! Ocorreu um erro ao processar: {e}")
+                    
+    st.markdown("---")
+    st.markdown("### Navegação")
+    st.markdown("- **Visão Executiva**")
+    st.markdown("- **Análise Analítica**")
+    st.markdown("- **Equalização**")
+    st.markdown("- **Simulador Executivo**")
+
+# ==========================================
+# 📊 ECRÃ PRINCIPAL: PLATAFORMA EPICO
+# ==========================================
 st.title("EPICO Platform")
 st.caption("Plataforma de análise, equalização e simulação executiva da coleta domiciliar.")
-
-st.markdown(
-    """
-### Estrutura da Plataforma
-
-Use o menu lateral:
-
-- **Visão Executiva**
-- **Análise Analítica**
-- **Equalização**
-- **Simulador Executivo**
-"""
-)
 
 st.subheader("Base principal da análise")
 
 uploaded = st.file_uploader(
-    "Envie a base da operação (.xlsx, .xls ou .csv)",
+    "2. Envie a base da operação limpa (.xlsx, .xls ou .csv)",
     type=["xlsx", "xls", "csv"],
     key="base_principal_upload"
 )
@@ -149,8 +177,7 @@ if "epico_df" in st.session_state:
         for nome, perfil in st.session_state["perfis_filtros"].items():
             st.markdown(
                 f"""
-**{nome}**  
-- Turnos: {perfil['filtro_turnos']}  
+**{nome}** - Turnos: {perfil['filtro_turnos']}  
 - Dias: {perfil['filtro_dias']}  
 - Setores: {perfil['filtro_setores']}
 """
@@ -169,3 +196,4 @@ st.markdown(
 - todas as páginas usam a mesma base e os mesmos filtros
 """
 )
+# Atualizacao God Mode
