@@ -22,14 +22,21 @@ SETORES_NOTURNOS = ['3001', '3002', '3003', '3004', '3005', '5001', '5002', '500
 # ==========================================
 def processar_inlog(caminho_bruto, caminho_saida):
     print("⏳ 1. Extraindo dados do Inlog...")
-    try:
-        df = pd.read_csv(caminho_bruto, sep=';', encoding='utf-8', skiprows=2)
-    except:
-        df = pd.read_csv(caminho_bruto, sep=';', encoding='latin1', skiprows=2)
+    
+    # NOVA LÓGICA: Descobre se é CSV ou Excel e lê corretamente
+    if caminho_bruto.lower().endswith('.csv'):
+        try:
+            df = pd.read_csv(caminho_bruto, sep=';', encoding='utf-8', skiprows=2)
+        except:
+            df = pd.read_csv(caminho_bruto, sep=';', encoding='latin1', skiprows=2)
+    else:
+        # Se for .xls ou .xlsx, o Pandas usa o motor de Excel
+        df = pd.read_excel(caminho_bruto, skiprows=2)
 
     df.columns = df.columns.astype(str).str.replace(r'\s+', ' ', regex=True).str.strip()
     
     print("📅 2. Leitor Universal de Datas...")
+    # ... (o resto do código continua exatamente igual daqui para baixo) ...
     if 'Data Execucao' in df.columns:
         df['Data_Calendario'] = pd.to_datetime(df['Data Execucao'], format='mixed', dayfirst=True, errors='coerce') 
         df.loc[df['Data_Calendario'].notna(), 'Dia da Semana'] = df['Data_Calendario'].dt.dayofweek.map(DIAS_SEMANA_PT)
