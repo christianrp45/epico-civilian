@@ -12,25 +12,27 @@ with st.sidebar:
     st.header("⚙️ Administração (ETL)")
     st.caption("Carregue o relatório bruto do Inlog. O sistema fará a limpeza, removerá anomalias e criará o Padrão Ouro.")
     
-    ficheiro_inlog = st.file_uploader("1. Carregar Inlog Bruto (CSV)", type=['csv'], key="upload_inlog_bruto")
+    # 1. MUDANÇA: Agora aceita csv, xls e xlsx
+    ficheiro_inlog = st.file_uploader("1. Carregar Inlog Bruto (CSV, XLS, XLSX)", type=['csv', 'xls', 'xlsx'], key="upload_inlog_bruto")
 
     if ficheiro_inlog is not None:
         if st.button("🚀 Processar Dados Brutos", use_container_width=True):
             with st.spinner("A aplicar algoritmos de limpeza e inteligência..."):
                 try:
-                    # 1. Guarda o ficheiro carregado temporariamente no servidor
-                    with open("temp_inlog.csv", "wb") as f:
+                    # 2. MUDANÇA: Descobre a extensão do arquivo enviado para salvar corretamente
+                    extensao = ficheiro_inlog.name.split('.')[-1].lower()
+                    arquivo_temp = f"temp_inlog.{extensao}"
+                    
+                    with open(arquivo_temp, "wb") as f:
                         f.write(ficheiro_inlog.getbuffer())
                     
-                    # 2. Chama o nosso Robô para fazer a faxina pesada e gerar o arquivo limpo
-                    processar_inlog("temp_inlog.csv", "dados_coleta.xlsx")
+                    # 3. MUDANÇA: Envia o arquivo com a extensão certa para o robô
+                    processar_inlog(arquivo_temp, "dados_coleta.xlsx")
                     
-                    # 3. Apaga o ficheiro temporário
-                    os.remove("temp_inlog.csv")
+                    os.remove(arquivo_temp)
                     
                     st.success("✅ Padrão Ouro gerado com sucesso!")
                     
-                    # 📥 LÊ O ARQUIVO QUE ESTÁ NA NUVEM E CRIA O BOTÃO DE DOWNLOAD
                     with open("dados_coleta.xlsx", "rb") as file:
                         btn = st.download_button(
                             label="📥 Baixar Padrão Ouro (Excel)",
