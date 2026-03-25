@@ -5,8 +5,8 @@ from datetime import timedelta
 # ==========================================
 # ⚙️ PAINEL DE CONTROLO (AJUSTE AQUI)
 # ==========================================
-MARGEM_ERRO = 0.10          # 10% de margem (Guilhotina a 10%)
-MINIMO_VIAGENS_LIVRE = 5    # AUMENTEI PARA 5: Setores com menos de 5 viagens passam direto (Passe Livre)
+MARGEM_ERRO = 0.40          # ALARGADO PARA 40% (Permite a variação natural dos dias)
+MINIMO_VIAGENS_LIVRE = 5    # Setores com menos de 5 viagens não sofrem nenhum corte
 
 FERIADOS_TRINDADE = [
     '2026-01-01', '2026-04-21', '2026-05-01', 
@@ -17,14 +17,16 @@ DIAS_SEMANA_PT = {
     3: 'Quinta-feira', 4: 'Sexta-feira', 5: 'Sábado', 6: 'Domingo'
 }
 
-# O Robô agora sabe de cor quem é o Noturno (para corrigir o erro do Inlog)
 SETORES_NOTURNOS = ['3001', '3002', '3003', '3004', '3005', '5001', '5002', '5003', '5004', '5005']
 
 def aplicar_guilhotina(df, coluna_base):
     if coluna_base not in df.columns: return df
     
     temp_col = coluna_base + "_temp_calc"
-    df[temp_col] = pd.to_numeric(df[coluna_base].astype(str).str.replace(',', '.'), errors='coerce')
+    
+    # Blindagem extra para números brasileiros (remove ponto de milhar, troca vírgula por ponto)
+    df[temp_col] = df[coluna_base].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
+    df[temp_col] = pd.to_numeric(df[temp_col], errors='coerce')
     
     limites = df.groupby('Setor')[temp_col].agg(['mean', 'count']).reset_index()
     limites['Piso'] = limites['mean'] * (1 - MARGEM_ERRO)
@@ -55,21 +57,23 @@ def processar_inlog(caminho_bruto, caminho_saida):
 
     df.columns = df.columns.astype(str).str.replace(r'\s+', ' ', regex=True).str.strip()
     
-    print("📅 2. Leitor de Datas Universal e Recálculo do Dia...")
+    print("📅 2. Leitor Universal de Datas...")
     if 'Data Execucao' in df.columns:
-        # Lê a data não importa como o sistema envie (dd/mm/yyyy ou yyyy-mm-dd)
         df['Data_Calendario'] = pd.to_datetime(df['Data Execucao'], format='mixed', dayfirst=True, errors='coerce') 
         df.loc[df['Data_Calendario'].notna(), 'Dia da Semana'] = df['Data_Calendario'].dt.dayofweek.map(DIAS_SEMANA_PT)
         
-    print("🧹 3. Limpeza Básica e Correção de Turnos...")
+    print("🧹 3. Correção de Turnos (Ignorando erros do Inlog)...")
     if 'Setor' in df.columns:
         df = df.dropna(subset=['Setor'])
         df = df[df['Setor'].astype(str).str.strip().str.upper() != 'GARAGEM']
         df['Setor'] = df['Setor'].astype(str).str.replace('.0', '', regex=False).str.strip().str.zfill(4)
         
-        # Corrige a mentira do Inlog: Força o Noturno onde é Noturno
         if 'Turno' in df.columns:
+            # 1. Garante que os setores noturnos sejam NOTURNO
             df.loc[df['Setor'].isin(SETORES_NOTURNOS), 'Turno'] = 'NOTURNO'
+            
+            # 2. Garante que o 3000 (e outros diários) sejam DIURNO, corrigindo o erro do sistema
+            df.loc[df['Setor'] == '3000', 'Turno'] = 'DIURNO'
 
     print("🚫 4. Aplicando Filtro de Feriados...")
     if 'Data_Calendario' in df.columns:
@@ -83,7 +87,7 @@ def processar_inlog(caminho_bruto, caminho_saida):
         df = df[~df['Data_Calendario'].isin(datas_proibidas)]
         df = df.drop(columns=['Data_Calendario'])
 
-    print(f"🪓 5. Guilhotina de {int(MARGEM_ERRO*100)}% (Passe Livre p/ menos de {MINIMO_VIAGENS_LIVRE} viagens)...")
+    print(f"🪓 5. Guilhotina Flexível de {int(MARGEM_ERRO*100)}%...")
     if 'Toneladas' in df.columns:
         df = aplicar_guilhotina(df, 'Toneladas')
     
