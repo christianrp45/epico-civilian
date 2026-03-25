@@ -3,11 +3,8 @@ import numpy as np
 from datetime import timedelta
 
 # ==========================================
-# ⚙️ PAINEL DE CONTROLO (AJUSTE AQUI)
+# ⚙️ CONFIGURAÇÕES INICIAIS
 # ==========================================
-MARGEM_ERRO = 0.40          # ALARGADO PARA 40% (Permite a variação natural dos dias)
-MINIMO_VIAGENS_LIVRE = 5    # Setores com menos de 5 viagens não sofrem nenhum corte
-
 FERIADOS_TRINDADE = [
     '2026-01-01', '2026-04-21', '2026-05-01', 
 ]
@@ -17,36 +14,11 @@ DIAS_SEMANA_PT = {
     3: 'Quinta-feira', 4: 'Sexta-feira', 5: 'Sábado', 6: 'Domingo'
 }
 
+# Lista mestre para forçar o Noturno
 SETORES_NOTURNOS = ['3001', '3002', '3003', '3004', '3005', '5001', '5002', '5003', '5004', '5005']
 
-def aplicar_guilhotina(df, coluna_base):
-    if coluna_base not in df.columns: return df
-    
-    temp_col = coluna_base + "_temp_calc"
-    
-    # Blindagem extra para números brasileiros (remove ponto de milhar, troca vírgula por ponto)
-    df[temp_col] = df[coluna_base].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
-    df[temp_col] = pd.to_numeric(df[temp_col], errors='coerce')
-    
-    limites = df.groupby('Setor')[temp_col].agg(['mean', 'count']).reset_index()
-    limites['Piso'] = limites['mean'] * (1 - MARGEM_ERRO)
-    limites['Teto'] = limites['mean'] * (1 + MARGEM_ERRO)
-    
-    df = df.merge(limites[['Setor', 'Piso', 'Teto', 'count']], on='Setor', how='left')
-    
-    filtro = (
-        (df['count'] < MINIMO_VIAGENS_LIVRE) | 
-        ((df[temp_col] >= df['Piso']) & (df[temp_col] <= df['Teto'])) | 
-        (df[temp_col].isna())
-    )
-    
-    df_limpo = df[filtro].copy()
-    df_limpo = df_limpo.drop(columns=['Piso', 'Teto', 'count', temp_col])
-    
-    return df_limpo
-
 # ==========================================
-# 🚀 O MOTOR DE FAXINA
+# 🚀 O MOTOR DE FAXINA (SEM GUILHOTINA)
 # ==========================================
 def processar_inlog(caminho_bruto, caminho_saida):
     print("⏳ 1. Extraindo dados do Inlog...")
@@ -72,7 +44,7 @@ def processar_inlog(caminho_bruto, caminho_saida):
             # 1. Garante que os setores noturnos sejam NOTURNO
             df.loc[df['Setor'].isin(SETORES_NOTURNOS), 'Turno'] = 'NOTURNO'
             
-            # 2. Garante que o 3000 (e outros diários) sejam DIURNO, corrigindo o erro do sistema
+            # 2. Garante que o 3000 seja DIURNO, corrigindo o erro de cadastro
             df.loc[df['Setor'] == '3000', 'Turno'] = 'DIURNO'
 
     print("🚫 4. Aplicando Filtro de Feriados...")
@@ -87,12 +59,18 @@ def processar_inlog(caminho_bruto, caminho_saida):
         df = df[~df['Data_Calendario'].isin(datas_proibidas)]
         df = df.drop(columns=['Data_Calendario'])
 
-    print(f"🪓 5. Guilhotina Flexível de {int(MARGEM_ERRO*100)}%...")
-    if 'Toneladas' in df.columns:
-        df = aplicar_guilhotina(df, 'Toneladas')
-    
-    if 'Km Total' in df.columns:
-        df = aplicar_guilhotina(df, 'Km Total')
+    print("🪓 5. Filtro de Viagens Reais (Eliminando viagens zeradas do Inlog)...")
+    # Em vez de médias, agora ele simplesmente apaga viagens que não tiveram Toneladas ou Km
+    for col in ['Toneladas', 'Km Total']:
+        if col in df.columns:
+            temp_col = col + "_temp_calc"
+            # Converte números brasileiros para padrão internacional
+            df[temp_col] = df[col].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
+            df[temp_col] = pd.to_numeric(df[temp_col], errors='coerce')
+            
+            # Mantém apenas o que for maior que zero (ou vazio, para não apagar falhas de sistema)
+            df = df[(df[temp_col] > 0) | (df[temp_col].isna())]
+            df = df.drop(columns=[temp_col])
 
     print(f"✅ SUCESSO! Base limpa salva em: {caminho_saida}")
     df.to_excel(caminho_saida, index=False)
