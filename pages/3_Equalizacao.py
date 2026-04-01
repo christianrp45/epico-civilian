@@ -1,73 +1,149 @@
 import streamlit as st
+import plotly.express as px
 import pandas as pd
 import numpy as np
+from helpers import upload_and_filter_page
+from kpis import compute_dashboard_data, format_horas_hhmmss
 
-st.set_page_config(page_title="Visão Geral da Operação", page_icon="📊", layout="wide")
+# --- CONFIGURAÇÕES PADRÃO ---
+META_PADRAO = 7 + 20/60
+LIMITE_PADRAO = 9 + 20/60
 
-st.title("📊 Visão Geral: Estado da Operação")
-st.caption("Diagnóstico atual das jornadas, quilometragens e toneladas antes de qualquer simulação.")
+st.set_page_config(page_title="Visão Geral / Equalização", page_icon="⚖️", layout="wide")
 
-if "epico_df" not in st.session_state:
-    st.warning("⚠️ Nenhuma base carregada. Vá à página principal.")
+jornada_meta, df_filtrado = upload_and_filter_page(
+    "Visão Geral: Diagnóstico e Equalização",
+    "Média real do grupo, doadores, recebedores e regra de km alto."
+)
+
+results = compute_dashboard_data(df_filtrado, jornada_meta=jornada_meta)
+rotas = results["rotas"].copy()
+medias = results["medias"]
+kpi = results["kpis"]
+
+if rotas.empty:
+    st.warning("Nenhum dado disponível após os filtros.")
     st.stop()
 
-df = st.session_state["epico_df"]
-meta = st.session_state.get("jornada_meta", 7.33)
+# ==========================================
+# 🛠️ CORREÇÕES APLICADAS (LIXA DE DADOS)
+# ==========================================
+# 1. Limpeza do Setor (Remover .000000 forçando a texto)
+rotas["Setor"] = pd.to_numeric(rotas["Setor"], errors="coerce").fillna(0).astype(int).astype(str)
 
-st.markdown("### 🔍 Isole o Cenário")
-c_turno, c_dia = st.columns(2)
-with c_turno:
-    turnos_disp = ["Todos"] + list(df['Turno'].dropna().unique())
-    idx_t = turnos_disp.index("DIURNO") if "DIURNO" in turnos_disp else 0
-    turno_escolhido = st.selectbox("Turno:", options=turnos_disp, index=idx_t)
-with c_dia:
-    dias_disp = ["Todos"] + list(df['Dia da Semana'].dropna().unique())
-    idx_d = dias_disp.index("Segunda-feira") if "Segunda-feira" in dias_disp else 0
-    dia_escolhido = st.selectbox("Dia da Semana:", options=dias_disp, index=idx_d)
+# Forçar numéricos nas colunas principais para evitar erros
+for col in ["Toneladas", "Km Total", "Produtividade (t/h)", "Horas Trabalhadas"]:
+    rotas[col] = pd.to_numeric(rotas.get(col, 0), errors="coerce").fillna(0)
 
-df_filtrado = df.copy()
-if turno_escolhido != "Todos": df_filtrado = df_filtrado[df_filtrado['Turno'] == turno_escolhido]
-if dia_escolhido != "Todos": df_filtrado = df_filtrado[df_filtrado['Dia da Semana'] == dia_escolhido]
+# 2. Correção Automática de Kg para Toneladas
+if rotas["Toneladas"].max() > 100:
+    rotas["Toneladas"] = rotas["Toneladas"] / 1000
 
-if df_filtrado.empty:
-    st.warning("Nenhum dado para este filtro.")
-    st.stop()
+# ==========================================
+# 🧠 LÓGICA ORIGINAL DA SUA PÁGINA
+# ==========================================
+rotas["Ton/h"] = rotas["Produtividade (t/h)"]
+rotas["Desvio Horas"] = rotas["Horas Trabalhadas"] - medias["media_horas"]
+rotas["Km Alto"] = rotas["Km Total"] > (medias["media_km_total"] * 1.20)
 
-def extrair_horas(hora_str):
-    try:
-        h, m, s = map(int, str(hora_str).split(':'))
-        return h + (m / 60) + (s / 3600)
-    except: return np.nan
+def papel(row):
+    if row["Desvio Horas"] > 0.15:
+        return "Doador"
+    if row["Desvio Horas"] < -0.15:
+        return "Recebedor"
+    return "Equilibrado"
 
-df_calc = df_filtrado.copy()
+rotas["Papel"] = rotas.apply(papel, axis=1)
+rotas["Horas Trabalhadas HHMMSS"] = rotas["Horas Trabalhadas"].apply(format_horas_hhmmss)
+rotas["Desvio Horas HHMMSS"] = rotas["Desvio Horas"].apply(
+    lambda x: "-" + format_horas_hhmmss(abs(x)) if x < 0 else format_horas_hhmmss(abs(x))
+)
 
-# 🛠️ CORREÇÃO 1: Limpeza da coluna Setor (Remove os .000000 forçando a virar texto puro)
-df_calc['Setor'] = pd.to_numeric(df_calc['Setor'], errors='coerce').fillna(0).astype(int).astype(str)
-
-df_calc['Horas_Dec'] = df_calc['Horas Trabalhadas'].apply(extrair_horas) if 'Horas Trabalhadas' in df_calc.columns else 7.33
-for col in ['Viagens', 'Km Total', 'Toneladas']:
-    df_calc[col] = pd.to_numeric(df_calc.get(col, 0), errors='coerce').fillna(0)
-
-# Agrupa os dados agora com o Setor limpo
-df_jornada = df_calc.groupby('Setor').mean(numeric_only=True).reset_index()
-
-# 🛠️ CORREÇÃO 2: Conversão Automática de Quilos para Toneladas
-# Se o sistema detectar que a carga média de um caminhão passou de 100, é porque está em Kg.
-if df_jornada['Toneladas'].max() > 100:
-    df_jornada['Toneladas'] = df_jornada['Toneladas'] / 1000
-
-df_jornada.rename(columns={'Horas_Dec': 'Jornada Atual'}, inplace=True)
-df_jornada['Jornada Atual'] = df_jornada['Jornada Atual'].round(2)
+# ==========================================
+# 📊 INTERFACE VISUAL
+# ==========================================
+st.markdown("### 📋 Indicadores Globais da Frota")
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("Média de horas", format_horas_hhmmss(medias["media_horas"]))
+c2.metric("Meta", format_horas_hhmmss(META_PADRAO))
+c3.metric("Limite Legal", format_horas_hhmmss(LIMITE_PADRAO))
+c4.metric("Amplitude", format_horas_hhmmss(kpi["amplitude_rotas"]))
 
 st.markdown("---")
-st.markdown(f"### 📋 Indicadores da Operação (Meta: {meta}h)")
 
-df_jornada['Status'] = np.where(df_jornada['Jornada Atual'] > (meta + 0.1), "🔴 Excesso", 
-                       np.where(df_jornada['Jornada Atual'] < (meta - 0.1), "🟡 Ocioso", "🟢 Ideal"))
+st.subheader("📊 Análise Visual de Jornadas")
 
-st.dataframe(df_jornada[['Setor', 'Jornada Atual', 'Status', 'Km Total', 'Toneladas', 'Viagens']].style.format({
-    "Jornada Atual": "{:.2f}h", "Km Total": "{:.1f} km", "Toneladas": "{:.2f} t", "Viagens": "{:.1f}"
-}), use_container_width=True)
+g1, g2 = st.columns(2)
 
-# O gráfico agora usa o Setor como Texto, ficando com o eixo X alinhado e limpo!
-st.bar_chart(df_jornada.set_index('Setor')['Jornada Atual'], use_container_width=True)
+with g1:
+    # GRÁFICO 1: HORAS ABSOLUTAS COM AS LINHAS COLORIDAS
+    fig_abs = px.bar(
+        rotas.sort_values("Horas Trabalhadas", ascending=False),
+        x="Setor",
+        y="Horas Trabalhadas",
+        color="Papel",
+        color_discrete_map={"Doador": "#ef553b", "Recebedor": "#00cc96", "Equilibrado": "#636efa"},
+        text="Horas Trabalhadas HHMMSS",
+        title="1. Jornada Atual vs Linhas de Meta"
+    )
+    fig_abs.update_traces(textposition="outside", cliponaxis=False)
+    fig_abs.update_layout(xaxis=dict(type="category"), height=450)
+
+    # Adicionando as linhas Verde, Amarela e Vermelha
+    fig_abs.add_hline(y=META_PADRAO, line_dash="dash", line_color="green", annotation_text="Meta", annotation_position="top right")
+    fig_abs.add_hline(y=medias["media_horas"], line_dash="dot", line_color="yellow", annotation_text="Média Atual", annotation_position="top right")
+    fig_abs.add_hline(y=LIMITE_PADRAO, line_dash="dash", line_color="red", annotation_text="Limite Legal", annotation_position="top right")
+
+    # Ajuste de eixo para as labels não cortarem
+    max_y = max(rotas["Horas Trabalhadas"].max(), LIMITE_PADRAO)
+    fig_abs.update_yaxes(range=[0, max_y * 1.15])
+
+    st.plotly_chart(fig_abs, use_container_width=True)
+
+with g2:
+    # GRÁFICO 2: O SEU GRÁFICO ORIGINAL DE DESVIOS
+    fig_dev = px.bar(
+        rotas.sort_values("Desvio Horas", ascending=False),
+        x="Setor",
+        y="Desvio Horas",
+        color="Papel",
+        color_discrete_map={"Doador": "#ef553b", "Recebedor": "#00cc96", "Equilibrado": "#636efa"},
+        text="Desvio Horas",
+        title="2. Desvio de Horas vs Média da Frota"
+    )
+    fig_dev.update_traces(texttemplate="%{text:.2f}h", textposition="outside", cliponaxis=False)
+    fig_dev.update_layout(xaxis=dict(type="category"), height=450)
+    
+    if not rotas.empty:
+        lim = max(abs(rotas["Desvio Horas"].min()), abs(rotas["Desvio Horas"].max()))
+        fig_dev.update_yaxes(range=[-lim * 1.25, lim * 1.25])
+        
+    st.plotly_chart(fig_dev, use_container_width=True)
+
+st.markdown("---")
+
+st.subheader("📋 Tabela Analítica: Doadores e Recebedores")
+
+# Arredondando os números para a tabela ficar com leitura executiva
+tabela_view = rotas.copy()
+tabela_view["Toneladas"] = tabela_view["Toneladas"].round(2)
+tabela_view["Ton/h"] = tabela_view["Ton/h"].round(2)
+tabela_view["Km Total"] = tabela_view["Km Total"].round(2)
+
+st.dataframe(
+    tabela_view[
+        [
+            "Setor",
+            "Dias Encontrados",
+            "Horas Trabalhadas HHMMSS",
+            "Desvio Horas HHMMSS",
+            "Toneladas",
+            "Ton/h",
+            "Km Total",
+            "Km Alto",
+            "Papel",
+        ]
+    ],
+    use_container_width=True,
+    hide_index=True
+)
