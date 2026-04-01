@@ -72,7 +72,7 @@ def preparar(rotas, tipo_map, cap_map):
     df["Horas Produtivas Simuladas"] = df["Horas Produtivas"]
     df["Horas Improdutivas Simuladas"] = df["Horas Improdutivas"]
     df["Km Produtivo Simulado"] = df["Km Produtivo"]
-    df["Km Produtivo Simulado"] = df["Km Improdutivo"]
+    df["Km Improdutivo Simulado"] = df["Km Improdutivo"]
     df["Horas Simulada (h)"] = df["Horas Trabalhadas"]
     df["Toneladas Simulada"] = df["Toneladas"]
     df["Ton Recebida do Doador"] = 0.0
