@@ -40,11 +40,22 @@ def extrair_horas(hora_str):
     except: return np.nan
 
 df_calc = df_filtrado.copy()
+
+# 🛠️ CORREÇÃO 1: Limpeza da coluna Setor (Remove os .000000 forçando a virar texto puro)
+df_calc['Setor'] = pd.to_numeric(df_calc['Setor'], errors='coerce').fillna(0).astype(int).astype(str)
+
 df_calc['Horas_Dec'] = df_calc['Horas Trabalhadas'].apply(extrair_horas) if 'Horas Trabalhadas' in df_calc.columns else 7.33
 for col in ['Viagens', 'Km Total', 'Toneladas']:
     df_calc[col] = pd.to_numeric(df_calc.get(col, 0), errors='coerce').fillna(0)
 
+# Agrupa os dados agora com o Setor limpo
 df_jornada = df_calc.groupby('Setor').mean(numeric_only=True).reset_index()
+
+# 🛠️ CORREÇÃO 2: Conversão Automática de Quilos para Toneladas
+# Se o sistema detectar que a carga média de um caminhão passou de 100, é porque está em Kg.
+if df_jornada['Toneladas'].max() > 100:
+    df_jornada['Toneladas'] = df_jornada['Toneladas'] / 1000
+
 df_jornada.rename(columns={'Horas_Dec': 'Jornada Atual'}, inplace=True)
 df_jornada['Jornada Atual'] = df_jornada['Jornada Atual'].round(2)
 
@@ -58,4 +69,5 @@ st.dataframe(df_jornada[['Setor', 'Jornada Atual', 'Status', 'Km Total', 'Tonela
     "Jornada Atual": "{:.2f}h", "Km Total": "{:.1f} km", "Toneladas": "{:.2f} t", "Viagens": "{:.1f}"
 }), use_container_width=True)
 
+# O gráfico agora usa o Setor como Texto, ficando com o eixo X alinhado e limpo!
 st.bar_chart(df_jornada.set_index('Setor')['Jornada Atual'], use_container_width=True)
