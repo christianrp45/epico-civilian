@@ -45,17 +45,13 @@ def extrair_horas(hora_str):
     except: return np.nan
 
 df_calc = df_filtrado.copy()
-
-# LIXA 1: Limpa o nome do Setor (tira os .000000)
 df_calc['Setor'] = pd.to_numeric(df_calc['Setor'], errors='coerce').fillna(0).astype(int).astype(str)
-
 df_calc['Horas_Dec'] = df_calc['Horas Trabalhadas'].apply(extrair_horas) if 'Horas Trabalhadas' in df_calc.columns else 7.33
 for col in ['Viagens', 'Km Total', 'Toneladas']:
     df_calc[col] = pd.to_numeric(df_calc.get(col, 0), errors='coerce').fillna(0)
 
 df_jornada = df_calc.groupby('Setor').mean(numeric_only=True).reset_index()
 
-# LIXA 2: Converte Kg para Toneladas automaticamente se necessário
 if df_jornada['Toneladas'].max() > 100:
     df_jornada['Toneladas'] = df_jornada['Toneladas'] / 1000
 
@@ -66,12 +62,10 @@ df_jornada['Jornada Atual'] = df_jornada['Jornada Atual'].round(2)
 st.markdown("---")
 st.subheader("📋 2. Balanço de Necessidades (Antes da Simulação)")
 
-# LÓGICA ORIGINAL RESTAURADA: Desvio calculado pela MÉDIA, respeitando o limite de 9h20
 media_frota = df_jornada['Jornada Atual'].mean()
-st.info(f"Onde precisamos mexer? Média atual da frota: **{format_horas_hhmmss(media_frota)}** (Limite legal: 09:20:00)")
+st.info(f"Onde precisamos mexer? Média atual da frota: **{format_horas_hhmmss(media_frota)}** (Limite legal p/ passivo: 09:20:00)")
 
 df_balanco = df_jornada.copy()
-# O desvio volta a ser baseado na média da frota, com a margem de 0.15 que você criou
 df_balanco['Desvio'] = df_balanco['Jornada Atual'] - media_frota
 df_balanco['Status'] = np.where(df_balanco['Desvio'] > 0.15, "🚩 Doador (Acima da Média)", 
                        np.where(df_balanco['Desvio'] < -0.15, "✅ Recebedor (Abaixo da Média)", "🟢 Equilibrado"))
@@ -80,7 +74,6 @@ df_bal_view = df_balanco.copy()
 df_bal_view['Jornada Atual'] = df_bal_view['Jornada Atual'].apply(format_horas_hhmmss)
 df_bal_view['Desvio da Média'] = df_bal_view['Desvio'].apply(lambda x: f"+{format_horas_hhmmss(abs(x))}" if x > 0 else f"-{format_horas_hhmmss(abs(x))}")
 
-# Arredondando para sumir com os "000000" do seu print
 df_bal_view['Toneladas'] = df_bal_view['Toneladas'].round(2)
 df_bal_view['Km Total'] = df_bal_view['Km Total'].round(2)
 
@@ -88,40 +81,59 @@ st.dataframe(df_bal_view[['Setor', 'Jornada Atual', 'Status', 'Desvio da Média'
     'background-color: #ffcccc' if v == "🚩 Doador (Acima da Média)" else ('background-color: #e6ffe6' if v == "✅ Recebedor (Abaixo da Média)" else '') for v in x
 ], axis=1, subset=['Status']), use_container_width=True, hide_index=True)
 
-# --- MOTOR DE TRANSFERÊNCIAS ---
+
+# --- MOTOR DE TRANSFERÊNCIAS DINÂMICO ---
 st.markdown("---")
-st.subheader("⚙️ 3. Otimização Manual (De -> Para)")
+st.subheader("⚙️ 3. Otimização Manual Múltipla (De -> Para)")
+st.caption("Adicione quantas linhas precisar. O gráfico calculará o impacto de todas elas em tempo real.")
 
-if "transferencias_manuais" not in st.session_state: st.session_state["transferencias_manuais"] = []
+# Inicializa o contador de linhas na memória
+if "num_linhas_manuais" not in st.session_state: 
+    st.session_state["num_linhas_manuais"] = 1
 
-c1, c2, c3, c4 = st.columns([2, 2, 2, 1])
-with c1: origem = st.selectbox("Doador (Perde horas):", options=df_jornada['Setor'].tolist())
-with c2: destino = st.selectbox("Receptor (Ganha horas):", options=df_jornada['Setor'].tolist())
-with c3: horas_trans = st.number_input("Horas a transferir:", min_value=0.1, step=0.1, value=1.0)
-with c4:
-    st.markdown("<br>", unsafe_allow_html=True)
-    if st.button("➕ Adicionar Regra", use_container_width=True):
-        if origem != destino:
-            st.session_state["transferencias_manuais"].append({"Doador": origem, "Receptor": destino, "Horas": horas_trans})
+b1, b2, _ = st.columns([2, 2, 6])
+with b1:
+    if st.button("➕ Adicionar linha de equalização", use_container_width=True):
+        st.session_state["num_linhas_manuais"] += 1
+        st.rerun()
+with b2:
+    if st.button("➖ Remover última linha", use_container_width=True):
+        if st.session_state["num_linhas_manuais"] > 1:
+            st.session_state["num_linhas_manuais"] -= 1
             st.rerun()
+
+st.markdown("<br>", unsafe_allow_html=True)
+transferencias_validas = []
+
+# Gera os campos de seleção dinamicamente
+for i in range(st.session_state["num_linhas_manuais"]):
+    c1, c2, c3 = st.columns(3)
+    with c1: 
+        origem = st.selectbox(f"Doador (Perde horas) - Regra {i+1}:", options=["Nenhum"] + df_jornada['Setor'].tolist(), key=f"origem_{i}")
+    with c2: 
+        destino = st.selectbox(f"Receptor (Ganha horas) - Regra {i+1}:", options=["Nenhum"] + df_jornada['Setor'].tolist(), key=f"destino_{i}")
+    with c3: 
+        horas_trans = st.number_input(f"Horas a transferir - Regra {i+1}:", min_value=0.1, step=0.1, value=1.0, key=f"horas_{i}")
+    
+    if origem != "Nenhum" and destino != "Nenhum":
+        if origem != destino:
+            transferencias_validas.append({"Doador": origem, "Receptor": destino, "Horas": horas_trans})
         else:
-            st.error("Doador e Receptor devem ser diferentes.")
+            st.warning(f"⚠️ Regra {i+1}: Doador e Receptor não podem ser o mesmo setor.")
 
 df_resultado = df_jornada.copy()
 df_resultado['Jornada Projetada'] = df_resultado['Jornada Atual']
 
-if st.session_state["transferencias_manuais"]:
-    st.markdown("**Regras Aplicadas:**")
-    st.dataframe(pd.DataFrame(st.session_state["transferencias_manuais"]), use_container_width=True)
-    if st.button("🗑️ Limpar Simulação"):
-        st.session_state["transferencias_manuais"] = []
-        st.rerun()
-        
-    for t in st.session_state["transferencias_manuais"]:
+# Aplica os cálculos na hora
+if transferencias_validas:
+    st.success(f"**{len(transferencias_validas)} regra(s) ativa(s)! Veja o resultado projetado abaixo.**")
+    for t in transferencias_validas:
         idx_d = df_resultado.index[df_resultado['Setor'] == t['Doador']].tolist()[0]
         idx_r = df_resultado.index[df_resultado['Setor'] == t['Receptor']].tolist()[0]
         df_resultado.at[idx_d, 'Jornada Projetada'] -= t['Horas']
         df_resultado.at[idx_r, 'Jornada Projetada'] += t['Horas']
+else:
+    st.info("Preencha o Doador e o Receptor acima para ver a simulação acontecendo.")
 
 # --- FÍSICA PROPORCIONAL BLINDADA ---
 df_resultado['Fator'] = np.where(df_resultado['Jornada Atual'] > 0, df_resultado['Jornada Projetada'] / df_resultado['Jornada Atual'], 1.0)
@@ -137,18 +149,19 @@ df_resultado['Papel Assumido'] = np.where(df_resultado['Alteração (h)'] < -0.0
 st.markdown("---")
 st.subheader("📊 4. Resultado do Impacto (Manual)")
 
-# 1. Gráfico Inteligente Lado a Lado
+# GRÁFICO LADO A LADO COM LINHAS INDICATIVAS
 long_df = df_resultado[['Setor', 'Jornada Atual', 'Jornada Projetada']].melt(id_vars="Setor", var_name="Cenário", value_name="Horas")
 fig = px.bar(long_df, x="Setor", y="Horas", color="Cenário", barmode="group", 
              color_discrete_map={"Jornada Atual": "#1f77b4", "Jornada Projetada": "#00cc96"},
              title="Comparativo de Jornada: Antes vs Depois")
 
 fig.update_layout(xaxis=dict(type="category"), height=450)
-fig.add_hline(y=meta, line_dash="dash", line_color="green", annotation_text="Meta")
-fig.add_hline(y=limite, line_dash="dash", line_color="red", annotation_text="Limite")
+fig.add_hline(y=meta, line_dash="dash", line_color="green", annotation_text="Meta (07:20)")
+fig.add_hline(y=media_frota, line_dash="dot", line_color="yellow", annotation_text="Média da Frota")
+fig.add_hline(y=limite, line_dash="dash", line_color="red", annotation_text="Limite Legal (09:20)")
 st.plotly_chart(fig, use_container_width=True)
 
-# 2. Tabela Executiva Limpa
+# TABELA FINAL LIMPA
 df_view_final = df_resultado.copy()
 df_view_final['Jornada Atual'] = df_view_final['Jornada Atual'].apply(format_horas_hhmmss)
 df_view_final['Jornada Projetada'] = df_view_final['Jornada Projetada'].apply(format_horas_hhmmss)
