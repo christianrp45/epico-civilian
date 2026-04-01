@@ -8,7 +8,7 @@ st.title("⚖️ Equalização de Setores (De -> Para)")
 st.caption("Ajuste a carga horária dos setores transferindo ruas/horas entre eles.")
 
 # ==========================================
-# ⚙️ 1. VALIDAÇÃO DA BASE E CÁLCULO INICIAL
+# ⚙️ 1. VALIDAÇÃO E FILTROS DO CENÁRIO
 # ==========================================
 if "epico_df" not in st.session_state:
     st.warning("⚠️ Nenhuma base carregada. Vá à página principal e carregue o Padrão Ouro.")
@@ -17,6 +17,36 @@ if "epico_df" not in st.session_state:
 df = st.session_state["epico_df"]
 meta_jornada = st.session_state.get("jornada_meta", 7.33)
 
+st.markdown("### 🔍 1. Isole o Cenário")
+st.info("Filtre o turno e o dia da semana para não misturar operações incompatíveis.")
+
+c_turno, c_dia = st.columns(2)
+with c_turno:
+    turnos_disp = ["Todos"] + list(df['Turno'].dropna().unique())
+    # Tenta deixar "DIURNO" como padrão se existir
+    idx_turno = turnos_disp.index("DIURNO") if "DIURNO" in turnos_disp else 0
+    turno_escolhido = st.selectbox("Turno:", options=turnos_disp, index=idx_turno)
+
+with c_dia:
+    dias_disp = ["Todos"] + list(df['Dia da Semana'].dropna().unique())
+    # Tenta deixar "Segunda-feira" como padrão se existir
+    idx_dia = dias_disp.index("Segunda-feira") if "Segunda-feira" in dias_disp else 0
+    dia_escolhido = st.selectbox("Dia da Semana:", options=dias_disp, index=idx_dia)
+
+# Aplica os filtros na base antes de calcular
+df_filtrado = df.copy()
+if turno_escolhido != "Todos":
+    df_filtrado = df_filtrado[df_filtrado['Turno'] == turno_escolhido]
+if dia_escolhido != "Todos":
+    df_filtrado = df_filtrado[df_filtrado['Dia da Semana'] == dia_escolhido]
+
+if df_filtrado.empty:
+    st.warning("⚠️ Nenhum dado encontrado para esta combinação de Turno e Dia. Altere os filtros acima.")
+    st.stop()
+
+# ==========================================
+# 🧮 2. CÁLCULO DA JORNADA ATUAL (FILTRADA)
+# ==========================================
 def extrair_horas_decimais(hora_str):
     try:
         h, m, s = map(int, str(hora_str).split(':'))
@@ -24,7 +54,7 @@ def extrair_horas_decimais(hora_str):
     except:
         return np.nan
 
-df_calc = df.copy()
+df_calc = df_filtrado.copy()
 if 'Horas Trabalhadas' in df_calc.columns:
     df_calc['Horas_Dec'] = df_calc['Horas Trabalhadas'].apply(extrair_horas_decimais)
 else:
@@ -34,12 +64,11 @@ df_jornada = df_calc.groupby('Setor')['Horas_Dec'].mean().reset_index()
 df_jornada.rename(columns={'Horas_Dec': 'Jornada Atual'}, inplace=True)
 df_jornada['Jornada Atual'] = df_jornada['Jornada Atual'].round(2)
 
-# Mostra o Estado Inicial da Operação no topo
-with st.expander("📊 Ver Planilha do Estado Atual da Operação", expanded=False):
+with st.expander("📊 Ver Planilha do Estado Atual da Operação (Neste Cenário)", expanded=False):
     st.dataframe(df_jornada.style.format({"Jornada Atual": "{:.2f}h"}), use_container_width=True)
 
 # ==========================================
-# 🧮 2. MOTOR DE TRANSFERÊNCIA AUTOMÁTICA
+# 🤖 3. MOTOR DE TRANSFERÊNCIA AUTOMÁTICA
 # ==========================================
 def calcular_transferencias_inteligentes(df_base, meta, limite_minimo=0.5):
     doadores = df_base[df_base['Jornada Atual'] > (meta + 0.1)].copy()
@@ -75,17 +104,15 @@ def calcular_transferencias_inteligentes(df_base, meta, limite_minimo=0.5):
     return pd.DataFrame(transferencias)
 
 # ==========================================
-# 🛠️ 3. INTERFACE DE ABAS
+# 🛠️ 4. INTERFACE DE ABAS
 # ==========================================
 tab1, tab2 = st.tabs(["🛠️ Otimização Manual", "🤖 Simulação Automática"])
 
 df_resultado_manual = None
 df_resultado_auto = None
 
-# --- ABA 1: MANUAL ---
 with tab1:
     st.subheader("Painel de Otimização Manual")
-    st.info("Escolha de qual setor tirar horas e para qual setor enviar.")
     
     if "transferencias_manuais" not in st.session_state:
         st.session_state["transferencias_manuais"] = []
@@ -110,7 +137,6 @@ with tab1:
                 })
                 st.rerun()
 
-    # Base projetada inicial
     df_resultado_manual = df_jornada.copy()
     df_resultado_manual['Jornada Projetada'] = df_resultado_manual['Jornada Atual']
 
@@ -123,7 +149,6 @@ with tab1:
             st.session_state["transferencias_manuais"] = []
             st.rerun()
             
-        # Aplica os cálculos
         for t in st.session_state["transferencias_manuais"]:
             idx_doador = df_resultado_manual.index[df_resultado_manual['Setor'] == t['Doador (Origem)']].tolist()[0]
             idx_receptor = df_resultado_manual.index[df_resultado_manual['Setor'] == t['Receptor (Destino)']].tolist()[0]
@@ -131,14 +156,11 @@ with tab1:
             df_resultado_manual.at[idx_doador, 'Jornada Projetada'] -= t['Horas Transferidas']
             df_resultado_manual.at[idx_receptor, 'Jornada Projetada'] += t['Horas Transferidas']
 
-    # Mostra a Planilha Final e o Gráfico na Aba Manual
     st.markdown("---")
     st.markdown("### 📊 Resultado do Impacto (Manual)")
     st.dataframe(df_resultado_manual.style.format({"Jornada Atual": "{:.2f}h", "Jornada Projetada": "{:.2f}h"}), use_container_width=True)
-    st.caption("Gráfico Comparativo: A barra mais clara é como estava, a mais escura é a sua projeção.")
     st.bar_chart(df_resultado_manual.set_index('Setor')[['Jornada Atual', 'Jornada Projetada']], use_container_width=True)
 
-# --- ABA 2: AUTOMÁTICA ---
 with tab2:
     st.subheader("Motor de Inteligência Artificial")
     st.write(f"A tentar nivelar todos os setores para a meta de **{meta_jornada} horas**.")
@@ -161,15 +183,13 @@ with tab2:
             df_resultado_auto.at[idx_doador, 'Jornada Projetada'] -= t['Horas Transferidas']
             df_resultado_auto.at[idx_receptor, 'Jornada Projetada'] += t['Horas Transferidas']
 
-    # Mostra a Planilha Final e o Gráfico na Aba Automática
     st.markdown("---")
     st.markdown("### 📊 Resultado do Impacto (Automático)")
     st.dataframe(df_resultado_auto.style.format({"Jornada Atual": "{:.2f}h", "Jornada Projetada": "{:.2f}h"}), use_container_width=True)
-    st.caption("Gráfico Comparativo: A barra mais clara é como estava, a mais escura é a sugestão do robô.")
     st.bar_chart(df_resultado_auto.set_index('Setor')[['Jornada Atual', 'Jornada Projetada']], use_container_width=True)
 
 # ==========================================
-# 💾 4. PAINEL DE GESTÃO PARA O RELATÓRIO
+# 💾 5. PAINEL DE GESTÃO PARA O RELATÓRIO
 # ==========================================
 st.markdown("---")
 st.header("💾 Gestão de Cenários e Relatório Executivo")
