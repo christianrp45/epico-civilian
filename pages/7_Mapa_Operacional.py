@@ -36,16 +36,17 @@ with open(geojson_path, "r", encoding="utf-8") as f:
     geojson_data = json.load(f)
 
 # --- BUSCAR DADOS DO SIMULADOR (MEMÓRIA) ---
-cenario_otimizado = st.session_state.get("epico_auto_frota")
-flag_nova_rota = st.session_state.get("epico_nova_rota_criada", False)
+cenario_otimizado = st.session_state.get("epico_relatorio_cenario")
+origem_mapa = st.session_state.get("epico_relatorio_origem", "Atual")
+
 usa_otimizado = False
 
 if isinstance(cenario_otimizado, pd.DataFrame) and not cenario_otimizado.empty:
-    st.success("✅ **Modo Otimizado Ativo:** O mapa está exibindo os resultados calculados pelo Simulador Automático.")
+    st.success(f"✅ **Modo Otimizado Ativo:** O mapa está a exibir a projeção oficial salva: **{origem_mapa}**.")
     df_mapa = cenario_otimizado.copy()
     usa_otimizado = True
 else:
-    st.info("ℹ️ **Modo Atual Ativo:** O mapa está exibindo a realidade crua da operação. (Rode os simuladores para ver este mapa mudar).")
+    st.info("ℹ️ **Modo Atual Ativo:** O mapa está a exibir a realidade crua da operação. (Rode os simuladores e salve um cenário para ver a mudança).")
     df_mapa = rotas.copy()
 
 # Tratamento para garantir o código do setor igual ao geojson ("apelido")
