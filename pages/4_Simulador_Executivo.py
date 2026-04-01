@@ -65,19 +65,27 @@ df_jornada['Jornada Atual'] = df_jornada['Jornada Atual'].round(2)
 # --- BALANÇO DE NECESSIDADES ---
 st.markdown("---")
 st.subheader("📋 2. Balanço de Necessidades (Antes da Simulação)")
-st.info(f"Onde precisamos mexer? Meta definida: **{format_horas_hhmmss(meta)}**")
+
+# LÓGICA ORIGINAL RESTAURADA: Desvio calculado pela MÉDIA, respeitando o limite de 9h20
+media_frota = df_jornada['Jornada Atual'].mean()
+st.info(f"Onde precisamos mexer? Média atual da frota: **{format_horas_hhmmss(media_frota)}** (Limite legal: 09:20:00)")
 
 df_balanco = df_jornada.copy()
-df_balanco['Desvio'] = df_balanco['Jornada Atual'] - meta
-df_balanco['Status'] = np.where(df_balanco['Desvio'] > 0.15, "🚩 Doador (Excesso)", 
-                       np.where(df_balanco['Desvio'] < -0.15, "✅ Recebedor (Ocioso)", "🟢 Equilibrado"))
+# O desvio volta a ser baseado na média da frota, com a margem de 0.15 que você criou
+df_balanco['Desvio'] = df_balanco['Jornada Atual'] - media_frota
+df_balanco['Status'] = np.where(df_balanco['Desvio'] > 0.15, "🚩 Doador (Acima da Média)", 
+                       np.where(df_balanco['Desvio'] < -0.15, "✅ Recebedor (Abaixo da Média)", "🟢 Equilibrado"))
 
 df_bal_view = df_balanco.copy()
 df_bal_view['Jornada Atual'] = df_bal_view['Jornada Atual'].apply(format_horas_hhmmss)
-df_bal_view['Horas Fora da Meta'] = df_bal_view['Desvio'].apply(lambda x: f"+{format_horas_hhmmss(abs(x))}" if x > 0 else f"-{format_horas_hhmmss(abs(x))}")
+df_bal_view['Desvio da Média'] = df_bal_view['Desvio'].apply(lambda x: f"+{format_horas_hhmmss(abs(x))}" if x > 0 else f"-{format_horas_hhmmss(abs(x))}")
 
-st.dataframe(df_bal_view[['Setor', 'Jornada Atual', 'Status', 'Horas Fora da Meta', 'Toneladas', 'Km Total']].style.apply(lambda x: [
-    'background-color: #ffcccc' if v == "🚩 Doador (Excesso)" else ('background-color: #e6ffe6' if v == "✅ Recebedor (Ocioso)" else '') for v in x
+# Arredondando para sumir com os "000000" do seu print
+df_bal_view['Toneladas'] = df_bal_view['Toneladas'].round(2)
+df_bal_view['Km Total'] = df_bal_view['Km Total'].round(2)
+
+st.dataframe(df_bal_view[['Setor', 'Jornada Atual', 'Status', 'Desvio da Média', 'Toneladas', 'Km Total']].style.apply(lambda x: [
+    'background-color: #ffcccc' if v == "🚩 Doador (Acima da Média)" else ('background-color: #e6ffe6' if v == "✅ Recebedor (Abaixo da Média)" else '') for v in x
 ], axis=1, subset=['Status']), use_container_width=True, hide_index=True)
 
 # --- MOTOR DE TRANSFERÊNCIAS ---
