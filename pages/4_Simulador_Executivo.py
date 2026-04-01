@@ -50,7 +50,10 @@ df_calc['Horas_Dec'] = df_calc['Horas Trabalhadas'].apply(extrair_horas) if 'Hor
 
 # Força a existência de todas as colunas que o Relatório e Mapa precisam
 for col in ['Viagens', 'Km Total', 'Toneladas', 'Combustível', 'Km Improdutivo', 'Produtividade (t/h)']:
-    df_calc[col] = pd.to_numeric(df_calc.get(col, 0), errors='coerce').fillna(0)
+    if col not in df_calc.columns:
+        df_calc[col] = 0.0 # Cria a coluna com zeros caso ela não exista na base importada
+    
+    df_calc[col] = pd.to_numeric(df_calc[col], errors='coerce').fillna(0)
 
 df_jornada = df_calc.groupby('Setor').mean(numeric_only=True).reset_index()
 
