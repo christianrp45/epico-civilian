@@ -2,12 +2,12 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
-from kpis import format_horas_hhmmss, format_number_br
+from kpis import format_horas_hhmmss
 
 st.set_page_config(page_title="Simulador Executivo", page_icon="🛠️", layout="wide")
 
 st.title("🛠️ Simulador Executivo (Manual)")
-st.caption("Suas regras ficam salvas na memória. Navegue pelo sistema e, quando pronto, envie o cenário final para o Relatório.")
+st.caption("Suas regras ficam salvas na tela. Navegue pelo sistema e, quando pronto, envie o cenário para o Relatório.")
 
 # --- CONFIGURAÇÕES E DADOS ---
 if "epico_df" not in st.session_state:
@@ -37,7 +37,7 @@ if df_filtrado.empty:
     st.warning("Nenhum dado para este filtro.")
     st.stop()
 
-# --- PREPARAÇÃO E LIMPEZA DE DADOS (PADRONIZAÇÃO EPICO) ---
+# --- PREPARAÇÃO E LIMPEZA DE DADOS ---
 def extrair_horas(hora_str):
     try:
         h, m, s = map(int, str(hora_str).split(':'))
@@ -48,10 +48,8 @@ df_calc = df_filtrado.copy()
 df_calc['Setor'] = pd.to_numeric(df_calc['Setor'], errors='coerce').fillna(0).astype(int).astype(str)
 df_calc['Horas_Dec'] = df_calc['Horas Trabalhadas'].apply(extrair_horas) if 'Horas Trabalhadas' in df_calc.columns else 7.33
 
-# Força a existência das colunas e padroniza os numéricos
 for col in ['Viagens', 'Km Total', 'Toneladas', 'Combustível', 'Km Improdutivo', 'Produtividade (t/h)']:
-    if col not in df_calc.columns:
-        df_calc[col] = 0.0
+    if col not in df_calc.columns: df_calc[col] = 0.0
     df_calc[col] = pd.to_numeric(df_calc[col], errors='coerce').fillna(0)
 
 df_jornada = df_calc.groupby('Setor').mean(numeric_only=True).reset_index()
@@ -59,17 +57,13 @@ df_jornada = df_calc.groupby('Setor').mean(numeric_only=True).reset_index()
 if df_jornada['Toneladas'].max() > 100:
     df_jornada['Toneladas'] = df_jornada['Toneladas'] / 1000
 
-# RENOMEIA PARA O PADRÃO EPICO
 df_jornada.rename(columns={
-    'Horas_Dec': 'Horas Atual (h)',
-    'Km Total': 'Km Atual',
-    'Toneladas': 'Ton Atual',
-    'Combustível': 'Combustível Atual',
-    'Viagens': 'Viagens Atual'
+    'Horas_Dec': 'Horas Atual (h)', 'Km Total': 'Km Atual', 'Toneladas': 'Ton Atual',
+    'Combustível': 'Combustível Atual', 'Viagens': 'Viagens Atual'
 }, inplace=True)
 
 df_jornada['Horas Atual (h)'] = df_jornada['Horas Atual (h)'].round(2)
-if 'Capacidade (t)' not in df_jornada.columns: df_jornada['Capacidade (t)'] = 9.5 
+df_jornada['Viagens Atual'] = np.ceil(df_jornada['Viagens Atual']) # Trava as viagens em números inteiros
 
 # --- BALANÇO DE NECESSIDADES ---
 st.markdown("---")
@@ -87,122 +81,112 @@ df_bal_view = df_balanco.copy()
 df_bal_view['Horas Atual'] = df_bal_view['Horas Atual (h)'].apply(format_horas_hhmmss)
 df_bal_view['Desvio da Média'] = df_bal_view['Desvio'].apply(lambda x: f"+{format_horas_hhmmss(abs(x))}" if x > 0 else f"-{format_horas_hhmmss(abs(x))}")
 
-df_bal_view['Ton Atual'] = df_bal_view['Ton Atual'].round(2)
-df_bal_view['Km Atual'] = df_bal_view['Km Atual'].round(2)
-
-st.dataframe(df_bal_view[['Setor', 'Horas Atual', 'Status', 'Desvio da Média', 'Ton Atual', 'Km Atual']].style.apply(lambda x: [
-    'background-color: #ffcccc' if v == "🚩 Doador (Acima da Média)" else ('background-color: #e6ffe6' if v == "✅ Recebedor (Abaixo da Média)" else '') for v in x
-], axis=1, subset=['Status']), use_container_width=True, hide_index=True)
+st.dataframe(df_bal_view[['Setor', 'Horas Atual', 'Status', 'Desvio da Média', 'Ton Atual', 'Km Atual']].style.format({
+    "Ton Atual": "{:.2f} t", "Km Atual": "{:.1f} km"
+}).apply(lambda x: ['background-color: #ffcccc' if v == "🚩 Doador (Acima da Média)" else ('background-color: #e6ffe6' if v == "✅ Recebedor (Abaixo da Média)" else '') for v in x], axis=1, subset=['Status']), use_container_width=True, hide_index=True)
 
 
-# --- MOTOR DE TRANSFERÊNCIAS (CARRINHO DE COMPRAS BLINDADO) ---
+# --- OTIMIZAÇÃO MANUAL (MÚLTIPLAS LINHAS COM MEMÓRIA) ---
 st.markdown("---")
-st.subheader("⚙️ 3. Painel de Otimização Manual (De -> Para)")
+st.subheader("⚙️ 3. Otimização Manual Múltipla (De -> Para)")
 
-# Memória persistente (Não apaga se mudar de página)
-if "regras_manuais_epico" not in st.session_state:
-    st.session_state["regras_manuais_epico"] = []
+# Memória persistente para as linhas
+if "regras_dinamicas" not in st.session_state:
+    st.session_state["regras_dinamicas"] = [{"doador": "Nenhum", "receptor": "Nenhum", "horas": 1.0}]
 
-c1, c2, c3, c4 = st.columns([2, 2, 2, 1])
-with c1: origem = st.selectbox("Doador (Perde horas):", options=["Selecione..."] + df_jornada['Setor'].tolist())
-with c2: destino = st.selectbox("Receptor (Ganha horas):", options=["Selecione..."] + df_jornada['Setor'].tolist())
-with c3: horas_trans = st.number_input("Horas a transferir:", min_value=0.1, step=0.1, value=1.0)
-with c4:
-    st.markdown("<br>", unsafe_allow_html=True)
-    if st.button("➕ Adicionar Regra", use_container_width=True):
-        if origem != "Selecione..." and destino != "Selecione...":
-            if origem != destino:
-                st.session_state["regras_manuais_epico"].append({"Doador": origem, "Receptor": destino, "Horas": horas_trans})
-                st.rerun()
-            else:
-                st.error("Setores iguais!")
-
-# Mostra as regras que estão salvas na memória
-if st.session_state["regras_manuais_epico"]:
-    st.markdown("**Regras Ativas na Memória:**")
-    for i, regra in enumerate(st.session_state["regras_manuais_epico"]):
-        col_txt, col_btn = st.columns([5, 1])
-        col_txt.info(f"🔄 **Regra {i+1}:** O Setor **{regra['Doador']}** transfere **{regra['Horas']}h** para o Setor **{regra['Receptor']}**")
-        if col_btn.button("🗑️ Remover", key=f"rem_regra_{i}"):
-            st.session_state["regras_manuais_epico"].pop(i)
-            st.rerun()
-    
-    if st.button("🚨 Limpar Todas as Regras"):
-        st.session_state["regras_manuais_epico"] = []
+b1, b2, b3 = st.columns([2, 2, 6])
+with b1:
+    if st.button("➕ Adicionar linha", use_container_width=True):
+        st.session_state["regras_dinamicas"].append({"doador": "Nenhum", "receptor": "Nenhum", "horas": 1.0})
         st.rerun()
-else:
-    st.info("Nenhuma regra adicionada ainda. Use os campos acima para começar a simular.")
+with b2:
+    if st.button("➖ Remover linha", use_container_width=True):
+        if len(st.session_state["regras_dinamicas"]) > 1:
+            st.session_state["regras_dinamicas"].pop()
+            st.rerun()
+with b3:
+    if st.button("🗑️ Limpar Tudo", use_container_width=False):
+        st.session_state["regras_dinamicas"] = [{"doador": "Nenhum", "receptor": "Nenhum", "horas": 1.0}]
+        st.rerun()
 
-# Aplica as regras ativas na tabela
+st.markdown("<br>", unsafe_allow_html=True)
+
+opcoes_setores = ["Nenhum"] + df_jornada['Setor'].tolist()
+transferencias_validas = []
+
+# Gera as linhas dinâmicas na tela
+for i, regra in enumerate(st.session_state["regras_dinamicas"]):
+    c1, c2, c3 = st.columns(3)
+    
+    # Atualiza a memória instantaneamente quando você altera um valor
+    def update_rule(index=i):
+        st.session_state["regras_dinamicas"][index]["doador"] = st.session_state[f"d_{index}"]
+        st.session_state["regras_dinamicas"][index]["receptor"] = st.session_state[f"r_{index}"]
+        st.session_state["regras_dinamicas"][index]["horas"] = st.session_state[f"h_{index}"]
+
+    idx_d = opcoes_setores.index(regra["doador"]) if regra["doador"] in opcoes_setores else 0
+    idx_r = opcoes_setores.index(regra["receptor"]) if regra["receptor"] in opcoes_setores else 0
+
+    with c1: st.selectbox(f"Doador (Perde horas) - Linha {i+1}:", options=opcoes_setores, index=idx_d, key=f"d_{i}", on_change=update_rule)
+    with c2: st.selectbox(f"Receptor (Ganha horas) - Linha {i+1}:", options=opcoes_setores, index=idx_r, key=f"r_{i}", on_change=update_rule)
+    with c3: st.number_input(f"Horas a transferir - Linha {i+1}:", min_value=0.1, step=0.1, value=float(regra["horas"]), key=f"h_{i}", on_change=update_rule)
+
+    d, r, h = st.session_state["regras_dinamicas"][i]["doador"], st.session_state["regras_dinamicas"][i]["receptor"], st.session_state["regras_dinamicas"][i]["horas"]
+    if d != "Nenhum" and r != "Nenhum":
+        if d != r: transferencias_validas.append({"Doador": d, "Receptor": r, "Horas": h})
+        else: st.error(f"⚠️ Linha {i+1}: Doador e Receptor não podem ser o mesmo setor.")
+
+# --- FÍSICA E CÁLCULOS ---
 df_resultado = df_jornada.copy()
 df_resultado['Horas Simulada (h)'] = df_resultado['Horas Atual (h)']
 
-for t in st.session_state["regras_manuais_epico"]:
-    idx_d = df_resultado.index[df_resultado['Setor'] == t['Doador']].tolist()[0]
-    idx_r = df_resultado.index[df_resultado['Setor'] == t['Receptor']].tolist()[0]
-    df_resultado.at[idx_d, 'Horas Simulada (h)'] -= t['Horas']
-    df_resultado.at[idx_r, 'Horas Simulada (h)'] += t['Horas']
+if transferencias_validas:
+    for t in transferencias_validas:
+        df_resultado.loc[df_resultado['Setor'] == t['Doador'], 'Horas Simulada (h)'] -= t['Horas']
+        df_resultado.loc[df_resultado['Setor'] == t['Receptor'], 'Horas Simulada (h)'] += t['Horas']
 
-# --- FÍSICA PROPORCIONAL BLINDADA ---
 df_resultado['Fator'] = np.where(df_resultado['Horas Atual (h)'] > 0, df_resultado['Horas Simulada (h)'] / df_resultado['Horas Atual (h)'], 1.0)
 
 df_resultado['Km Simulado'] = df_resultado['Km Atual'] * df_resultado['Fator']
 df_resultado['Toneladas Simulada'] = df_resultado['Ton Atual'] * df_resultado['Fator']
 df_resultado['Combustível Simulado'] = df_resultado['Combustível Atual'] * df_resultado['Fator']
+df_resultado['Km Improdutivo Simulado'] = df_resultado['Km Improdutivo'] * df_resultado['Fator']
 
-# TRAVA DA VIAGEM FANTASMA (Só altera a viagem se o fator for realmente diferente de 1)
-df_resultado['Viagens Atual'] = df_resultado['Viagens Atual'].round(0)
+# TRAVA ABSOLUTA DE VIAGENS (Resolve a Viagem Fantasma)
 df_resultado['Viagens Projetadas'] = np.where(
-    abs(df_resultado['Fator'] - 1.0) < 0.001, 
-    df_resultado['Viagens Atual'], 
-    np.ceil((df_resultado['Viagens Atual'] * df_resultado['Fator']).round(4))
+    abs(df_resultado['Fator'] - 1.0) < 0.001, # Se a alteração for zero...
+    df_resultado['Viagens Atual'],            # Mantém estritamente igual
+    np.ceil(df_resultado['Viagens Atual'] * df_resultado['Fator']) # Se mudou, recalcula
 )
 
-# --- DIAGNÓSTICO PÓS-SIMULAÇÃO (O QUE MUDOU?) ---
 df_resultado['Alteração (h)'] = df_resultado['Horas Simulada (h)'] - df_resultado['Horas Atual (h)']
-df_resultado['Papel Assumido'] = np.where(df_resultado['Alteração (h)'] < -0.01, "🔴 Doou Horas", 
-                                 np.where(df_resultado['Alteração (h)'] > 0.01, "🟢 Recebeu Horas", "⚪ Intacto"))
+df_resultado['Papel Assumido'] = np.where(df_resultado['Alteração (h)'] < -0.01, "🔴 Doou", np.where(df_resultado['Alteração (h)'] > 0.01, "🟢 Recebeu", "⚪ Intacto"))
 
+# --- RESULTADOS ---
 st.markdown("---")
 st.subheader("📊 4. Resultado do Impacto (Manual)")
 
-# GRÁFICO LADO A LADO
 long_df = df_resultado[['Setor', 'Horas Atual (h)', 'Horas Simulada (h)']].melt(id_vars="Setor", var_name="Cenário", value_name="Horas")
-fig = px.bar(long_df, x="Setor", y="Horas", color="Cenário", barmode="group", 
-             color_discrete_map={"Horas Atual (h)": "#1f77b4", "Horas Simulada (h)": "#00cc96"},
-             title="Comparativo de Jornada: Antes vs Depois")
-
+fig = px.bar(long_df, x="Setor", y="Horas", color="Cenário", barmode="group", color_discrete_map={"Horas Atual (h)": "#1f77b4", "Horas Simulada (h)": "#00cc96"})
 fig.update_layout(xaxis=dict(type="category"), height=450)
-fig.add_hline(y=meta, line_dash="dash", line_color="green", annotation_text="Meta (07:20)")
+fig.add_hline(y=meta, line_dash="dash", line_color="green", annotation_text="Meta")
 fig.add_hline(y=media_frota, line_dash="dot", line_color="yellow", annotation_text="Média da Frota")
-fig.add_hline(y=limite, line_dash="dash", line_color="red", annotation_text="Limite Legal (09:20)")
+fig.add_hline(y=limite, line_dash="dash", line_color="red", annotation_text="Limite Legal")
 st.plotly_chart(fig, use_container_width=True)
 
-# TABELA FINAL COMPLETA
 df_view_final = df_resultado.copy()
 df_view_final['Jornada Atual'] = df_view_final['Horas Atual (h)'].apply(format_horas_hhmmss)
 df_view_final['Jornada Projetada'] = df_view_final['Horas Simulada (h)'].apply(format_horas_hhmmss)
 df_view_final['Alteração'] = df_view_final['Alteração (h)'].apply(lambda x: f"+{format_horas_hhmmss(abs(x))}" if x > 0 else (f"-{format_horas_hhmmss(abs(x))}" if x < 0 else "-"))
 
-cols_exibicao = [
-    'Setor', 'Papel Assumido', 'Alteração', 
-    'Jornada Atual', 'Jornada Projetada', 
-    'Ton Atual', 'Toneladas Simulada', 
-    'Km Atual', 'Km Simulado',
-    'Viagens Atual', 'Viagens Projetadas'
-]
-
+cols_exibicao = ['Setor', 'Papel Assumido', 'Alteração', 'Jornada Atual', 'Jornada Projetada', 'Ton Atual', 'Toneladas Simulada', 'Km Atual', 'Km Simulado', 'Viagens Atual', 'Viagens Projetadas']
 st.dataframe(df_view_final[cols_exibicao].style.format({
-    "Ton Atual": "{:.2f} t", "Toneladas Simulada": "{:.2f} t", 
-    "Km Atual": "{:.1f} km", "Km Simulado": "{:.1f} km",
-    "Viagens Atual": "{:.0f}", "Viagens Projetadas": "{:.0f}"
+    "Ton Atual": "{:.2f} t", "Toneladas Simulada": "{:.2f} t", "Km Atual": "{:.1f} km", "Km Simulado": "{:.1f} km", "Viagens Atual": "{:.0f}", "Viagens Projetadas": "{:.0f}"
 }), use_container_width=True, hide_index=True)
 
-# --- SALVAMENTO OFICIAL ---
 st.markdown("---")
-st.info("💡 **Dica:** Suas regras já estão salvas na memória temporária. Você pode ir olhar o Mapa Operacional e voltar sem perder o seu trabalho. Quando finalizar a simulação, clique abaixo.")
-
-if st.button("🚀 Confirmar e Enviar para o Relatório Executivo Oficial", type="primary", use_container_width=True):
+st.info("💡 Suas regras estão salvas. Você pode olhar o Mapa Operacional e voltar. Quando finalizar a simulação, clique abaixo para oficializar o DRE e os Mapas.")
+if st.button("🚀 Confirmar e Enviar para o Relatório Executivo e Mapa", type="primary", use_container_width=True):
     st.session_state["epico_relatorio_cenario"] = df_resultado.copy()
     st.session_state["epico_relatorio_origem"] = "Simulação Manual Cirúrgica"
-    st.success("✅ Cenário guardado e oficializado! Agora você pode visualizar o DRE no Relatório Executivo e o impacto direto no Mapa Operacional.")
+    st.success("✅ Cenário enviado com sucesso!")
