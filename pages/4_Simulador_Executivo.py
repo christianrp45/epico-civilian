@@ -102,6 +102,7 @@ st.bar_chart(df_resultado.set_index('Setor')[['Jornada Atual', 'Jornada Projetad
 st.markdown("---")
 st.info("Gostou deste cenário? Salve para que ele seja a sua Proposta Oficial no Relatório Executivo.")
 if st.button("💾 Salvar MANUAL como Oficial", type="primary", use_container_width=True):
+    # CORREÇÃO: Usando a mesma variável que o Relatório Executivo lê
     st.session_state["epico_relatorio_cenario"] = df_resultado.copy()
     st.session_state["epico_relatorio_origem"] = "Simulação Manual Cirúrgica"
     st.success("✅ Cenário guardado! A página de Relatório e o Mapa vão usar estes dados agora.")
