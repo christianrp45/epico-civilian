@@ -1,70 +1,81 @@
 import streamlit as st
-import plotly.express as px
-from helpers import upload_and_filter_page
-from kpis import compute_dashboard_data, format_horas_hhmmss
+import pandas as pd
+import numpy as np
 
-jornada_meta, df_filtrado = upload_and_filter_page(
-    "Equalizacao",
-    "Média real do grupo, doadores, recebedores e regra de km alto."
-)
+st.set_page_config(page_title="Equalização de Setores", page_icon="⚖️", layout="wide")
 
-results = compute_dashboard_data(df_filtrado, jornada_meta=jornada_meta)
-rotas = results["rotas"]
-medias = results["medias"]
-kpi = results["kpis"]
+st.title("⚖️ Equalização de Setores (De -> Para)")
+st.caption("Ajuste a carga horária dos setores transferindo ruas/horas entre eles.")
 
-rotas["Ton/h"] = rotas["Produtividade (t/h)"]
-rotas["Desvio Horas"] = rotas["Horas Trabalhadas"] - medias["media_horas"]
-rotas["Km Alto"] = rotas["Km Total"] > (medias["media_km_total"] * 1.20)
+# ==========================================
+# ⚙️ 1. VALIDAÇÃO DA BASE E CÁLCULO INICIAL
+# ==========================================
+if "epico_df" not in st.session_state:
+    st.warning("⚠️ Nenhuma base carregada. Vá à página principal e carregue o Padrão Ouro.")
+    st.stop()
 
-def papel(row):
-    if row["Desvio Horas"] > 0.15:
-        return "Doador"
-    if row["Desvio Horas"] < -0.15:
-        return "Recebedor"
-    return "Equilibrado"
+df = st.session_state["epico_df"]
+meta_jornada = st.session_state.get("jornada_meta", 7.33)
 
-rotas["Papel"] = rotas.apply(papel, axis=1)
-rotas["Horas Trabalhadas HHMMSS"] = rotas["Horas Trabalhadas"].apply(format_horas_hhmmss)
-rotas["Desvio Horas HHMMSS"] = rotas["Desvio Horas"].apply(
-    lambda x: "-" + format_horas_hhmmss(abs(x)) if x < 0 else format_horas_hhmmss(abs(x))
-)
+# Função para garantir que temos as horas em decimal para fazer contas
+def extrair_horas_decimais(hora_str):
+    try:
+        h, m, s = map(int, str(hora_str).split(':'))
+        return h + (m / 60) + (s / 3600)
+    except:
+        return np.nan
 
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("Média de horas", format_horas_hhmmss(medias["media_horas"]))
-c2.metric("Meta", format_horas_hhmmss(7 + 20/60))
-c3.metric("Limite", format_horas_hhmmss(9 + 20/60))
-c4.metric("Amplitude", format_horas_hhmmss(kpi["amplitude_rotas"]))
+# Prepara a base de cálculo (Jornada Atual)
+df_calc = df.copy()
+if 'Horas Trabalhadas' in df_calc.columns:
+    df_calc['Horas_Dec'] = df_calc['Horas Trabalhadas'].apply(extrair_horas_decimais)
+else:
+    df_calc['Horas_Dec'] = 7.33 # Fallback se não achar a coluna
 
-st.dataframe(
-    rotas[
-        [
-            "Setor",
-            "Dias Encontrados",
-            "Horas Trabalhadas HHMMSS",
-            "Desvio Horas HHMMSS",
-            "Toneladas",
-            "Ton/h",
-            "Km Total",
-            "Km Alto",
-            "Papel",
-        ]
-    ],
-    use_container_width=True,
-    hide_index=True
-)
+# Calcula a média da jornada por setor
+df_jornada = df_calc.groupby('Setor')['Horas_Dec'].mean().reset_index()
+df_jornada.rename(columns={'Horas_Dec': 'Jornada Atual'}, inplace=True)
+df_jornada['Jornada Atual'] = df_jornada['Jornada Atual'].round(2)
 
-fig = px.bar(
-    rotas.sort_values("Desvio Horas", ascending=False),
-    x="Setor",
-    y="Desvio Horas",
-    color="Papel",
-    text="Desvio Horas",
-    title="Desvio de horas por setor"
-)
-fig.update_traces(texttemplate="%{text:.2f}", textposition="outside", cliponaxis=False)
-fig.update_layout(xaxis=dict(type="category"), height=420, margin=dict(t=70, b=40, l=40, r=20))
-if not rotas.empty:
-    lim = max(abs(rotas["Desvio Horas"].min()), abs(rotas["Desvio Horas"].max()))
-    fig.update_yaxes(range=[-lim * 1.25, lim * 1.25])
-st.plotly_chart(fig, use_container_width=True)
+# ==========================================
+# 🧮 2. MOTOR DE TRANSFERÊNCIA AUTOMÁTICA (COM TRAVA DE 30 MIN)
+# ==========================================
+def calcular_transferencias_inteligentes(df_base, meta, limite_minimo=0.5):
+    """Calcula transferências bloqueando pedaços pequenos (fracionamento)."""
+    doadores = df_base[df_base['Jornada Atual'] > (meta + 0.1)].copy()
+    receptores = df_base[df_base['Jornada Atual'] < (meta - 0.1)].copy()
+    
+    doadores['Excesso'] = doadores['Jornada Atual'] - meta
+    receptores['Deficit'] = meta - receptores['Jornada Atual']
+    
+    doadores = doadores.sort_values(by='Excesso', ascending=False)
+    receptores = receptores.sort_values(by='Deficit', ascending=False)
+    
+    transferencias = []
+    
+    for i, doador in doadores.iterrows():
+        excesso_disp = doador['Excesso']
+        for j, receptor in receptores.iterrows():
+            if excesso_disp <= 0: break
+            
+            deficit_nec = receptor['Deficit']
+            if deficit_nec <= 0: continue
+            
+            qtd_transferir = min(excesso_disp, deficit_nec)
+            
+            # TRAVA ANTI-FRACIONAMENTO (Só passa se for > 0.5h)
+            if qtd_transferir >= limite_minimo:
+                transferencias.append({
+                    'Doador (Origem)': doador['Setor'],
+                    'Receptor (Destino)': receptor['Setor'],
+                    'Horas Transferidas': round(qtd_transferir, 2)
+                })
+                excesso_disp -= qtd_transferir
+                receptores.at[j, 'Deficit'] -= qtd_transferir
+                
+    return pd.DataFrame(transferencias)
+
+# ==========================================
+# 🛠️ 3. INTERFACE DE ABAS (MANUAL vs AUTOMÁTICA)
+# ==========================================
+tab1, tab2 = st.tabs(["🛠️ Otimização
