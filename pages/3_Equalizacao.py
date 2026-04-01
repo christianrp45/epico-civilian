@@ -59,7 +59,6 @@ def calcular_transferencias_inteligentes(df_base, meta, limite_minimo=0.5):
             
             qtd_transferir = min(excesso_disp, deficit_nec)
             
-            # TRAVA DE 30 MINUTOS (0.5h) PARA EVITAR FRACIONAMENTO
             if qtd_transferir >= limite_minimo:
                 transferencias.append({
                     'Doador (Origem)': doador['Setor'],
@@ -76,7 +75,6 @@ def calcular_transferencias_inteligentes(df_base, meta, limite_minimo=0.5):
 # ==========================================
 tab1, tab2 = st.tabs(["🛠️ Otimização Manual", "🤖 Simulação Automática"])
 
-# Variáveis globais de segurança para os botões de salvar
 df_resultado_manual = None
 df_resultado_auto = None
 
@@ -192,4 +190,25 @@ with c2:
         if st.button("🗑️ Limpar Automática", use_container_width=True):
             st.session_state["proposta_automatica"] = None
             if st.session_state["cenario_oficial"] == "Automática": st.session_state["cenario_oficial"] = "Atual"
-            st.
+            st.rerun()
+
+with c3:
+    st.markdown("### 📑 Enviar para Relatório")
+    st.info("Escolha qual cenário gerar os gráficos na Visão Executiva.")
+    
+    opcoes_relatorio = ["Atual"]
+    if st.session_state["proposta_manual"] is not None: opcoes_relatorio.append("Manual")
+    if st.session_state["proposta_automatica"] is not None: opcoes_relatorio.append("Automática")
+    
+    index_atual = opcoes_relatorio.index(st.session_state["cenario_oficial"]) if st.session_state["cenario_oficial"] in opcoes_relatorio else 0
+    
+    escolha = st.selectbox(
+        "Selecione o cenário oficial:", 
+        options=opcoes_relatorio, 
+        index=index_atual
+    )
+    
+    if escolha != st.session_state["cenario_oficial"]:
+        st.session_state["cenario_oficial"] = escolha
+        st.success(f"Cenário **{escolha}** ativado no Relatório!")
+        st.rerun()
