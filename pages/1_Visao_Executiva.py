@@ -62,33 +62,42 @@ for c in nums:
     if c in rotas.columns:
         rotas[c] = pd.to_numeric(rotas[c], errors="coerce").fillna(0)
 
-# --- MENU LATERAL DE OPEX ---
+# --- MENU LATERAL DE OPEX (COM SINCRONIZAÇÃO DE MEMÓRIA) ---
 st.sidebar.subheader("🎯 Metas Operacionais")
-meta_operacional = st.sidebar.number_input("Meta ideal de jornada (horas)", min_value=1.0, max_value=24.0, value=float(META_PADRAO), step=0.01)
+meta_operacional = st.sidebar.number_input("Meta ideal de jornada (h)", min_value=1.0, max_value=24.0, value=float(st.session_state.get("meta_operacional", META_PADRAO)), step=0.01)
 
 st.sidebar.subheader("⚙️ Parâmetros Operacionais (Frota)")
-preco_diesel = st.sidebar.number_input("Preço Diesel (R$/L)", min_value=0.0, value=6.23, step=0.10)
-preco_arla = st.sidebar.number_input("Preço ARLA 32 (R$/L)", min_value=0.0, value=3.50, step=0.10)
-custo_pneu = st.sidebar.number_input("Custo Jogo Pneus (R$)", min_value=0.0, value=1500.0, step=100.0)
-vida_pneu = st.sidebar.number_input("Vida Útil Pneu (Km)", min_value=1, value=40000, step=1000)
-custo_manut = st.sidebar.number_input("Custo Manutenção (R$/Km)", min_value=0.0, value=0.85, step=0.05)
+preco_diesel = st.sidebar.number_input("Preço Diesel (R$/L)", min_value=0.0, value=float(st.session_state.get("preco_diesel", 6.23)), step=0.10)
+preco_arla = st.sidebar.number_input("Preço ARLA 32 (R$/L)", min_value=0.0, value=float(st.session_state.get("preco_arla", 3.50)), step=0.10)
+custo_pneu = st.sidebar.number_input("Custo Jogo Pneus (R$)", min_value=0.0, value=float(st.session_state.get("custo_pneu", 1500.0)), step=100.0)
+vida_pneu = st.sidebar.number_input("Vida Útil Pneu (Km)", min_value=1, value=int(st.session_state.get("vida_pneu", 40000)), step=1000)
+custo_manut = st.sidebar.number_input("Custo Manutenção (R$/Km)", min_value=0.0, value=float(st.session_state.get("custo_manut", 0.85)), step=0.05)
 
 with st.sidebar.expander("👷 Parâmetros de Mão de Obra (Mensal)", expanded=False):
     st.markdown("**Composição da Equipe**")
-    qtd_coletores = st.number_input("Qtd Coletores por Caminhão", min_value=1, value=3, step=1)
-    pct_hora_extra = st.number_input("Adicional de H.E. (%)", min_value=0.0, value=50.0, step=5.0)
+    qtd_coletores = st.number_input("Qtd Coletores por Caminhão", min_value=1, value=int(st.session_state.get("qtd_coletores", 3)), step=1)
+    pct_hora_extra = st.number_input("Adicional de H.E. (%)", min_value=0.0, value=float(st.session_state.get("pct_hora_extra", 50.0)), step=5.0)
 
     st.markdown("**Custos Motorista (R$)**")
-    mot_salario = st.number_input("Salário Base (Mot.)", value=2741.61)
-    mot_insalub = st.number_input("Insalubridade (Mot.)", value=1096.64)
-    mot_encargos = st.number_input("Encargos Trabalhistas (Mot.)", value=651.48)
-    mot_va = st.number_input("Vale Alimentação (Mot.)", value=708.50)
+    mot_salario = st.number_input("Salário Base (Mot.)", value=float(st.session_state.get("mot_salario", 2741.61)))
+    mot_insalub = st.number_input("Insalubridade (Mot.)", value=float(st.session_state.get("mot_insalub", 1096.64)))
+    mot_encargos = st.number_input("Encargos Trabalhistas (Mot.)", value=float(st.session_state.get("mot_encargos", 651.48)))
+    mot_va = st.number_input("Vale Alimentação (Mot.)", value=float(st.session_state.get("mot_va", 708.50)))
 
     st.markdown("**Custos Coletor (R$)**")
-    col_salario = st.number_input("Salário Base (Col.)", value=2053.20)
-    col_insalub = st.number_input("Insalubridade (Col.)", value=821.28)
-    col_encargos = st.number_input("Encargos Trabalhistas (Col.)", value=602.04)
-    col_va = st.number_input("Vale Alimentação (Col.)", value=708.50)
+    col_salario = st.number_input("Salário Base (Col.)", value=float(st.session_state.get("col_salario", 2053.20)))
+    col_insalub = st.number_input("Insalubridade (Col.)", value=float(st.session_state.get("col_insalub", 821.28)))
+    col_encargos = st.number_input("Encargos Trabalhistas (Col.)", value=float(st.session_state.get("col_encargos", 602.04)))
+    col_va = st.number_input("Vale Alimentação (Col.)", value=float(st.session_state.get("col_va", 708.50)))
+
+# Salva os valores na memória para que a Página Automática consiga ler os mesmos dados
+st.session_state.update({
+    "meta_operacional": meta_operacional, "preco_diesel": preco_diesel, "preco_arla": preco_arla,
+    "custo_pneu": custo_pneu, "vida_pneu": vida_pneu, "custo_manut": custo_manut,
+    "qtd_coletores": qtd_coletores, "pct_hora_extra": pct_hora_extra,
+    "mot_salario": mot_salario, "mot_insalub": mot_insalub, "mot_encargos": mot_encargos, "mot_va": mot_va,
+    "col_salario": col_salario, "col_insalub": col_insalub, "col_encargos": col_encargos, "col_va": col_va
+})
 
 # Calcula o custo da Hora Extra Real (Apenas Salário Base / 220)
 mot_hora_normal = mot_salario / 220.0
@@ -99,7 +108,6 @@ custo_he_equipe = (mot_hora_normal * fator_he) + ((col_hora_normal * fator_he) *
 # --- CORPO DA PÁGINA ---
 st.subheader("1. Indicadores Globais de Produção")
 
-# CÁLCULO SEGURO E AMPLO DAS MÉTRICAS
 total_toneladas_calc = rotas["Toneladas"].sum()
 total_viagens_calc = int(rotas["Viagens"].sum())
 total_km_calc = rotas["Km Total"].sum()
@@ -145,7 +153,6 @@ st.markdown("---")
 # --- GRÁFICOS DE DIAGNÓSTICO ---
 st.subheader("2. Raio-X por Setor (Onde estão os gargalos?)")
 
-# Cópia do dataframe forçando a coluna Setor a ser string (texto) para não virar eixo numérico
 rotas_grafico = rotas.copy()
 rotas_grafico["Setor"] = rotas_grafico["Setor"].astype(str)
 
@@ -173,7 +180,7 @@ with g2:
     fig_km.update_xaxes(type="category")
     st.plotly_chart(fig_km, use_container_width=True)
 
-st.subheader("3. Detalhamento Técnico (Dataframe)")
+st.subheader("3. Detalhamento Técnico")
 tabela_view = rotas.copy()
 tabela_view["Horas Trabalhadas"] = tabela_view["Horas Trabalhadas"].apply(format_horas_hhmmss)
 for col in ["Toneladas", "Km Total", "Km Produtivo", "Km Improdutivo", "Combustível", "Produtividade (t/h)"]:
