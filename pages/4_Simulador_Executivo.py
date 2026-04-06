@@ -48,7 +48,7 @@ df_calc = df_filtrado.copy()
 df_calc['Setor'] = pd.to_numeric(df_calc['Setor'], errors='coerce').fillna(0).astype(int).astype(str)
 df_calc['Horas_Dec'] = df_calc['Horas Trabalhadas'].apply(extrair_horas) if 'Horas Trabalhadas' in df_calc.columns else 7.33
 
-# BUSCADOR INTELIGENTE DE COLUNAS (Evita que o Km fique zero por erro de digitação no Excel)
+# BUSCADOR INTELIGENTE E CORRETOR DE VÍRGULAS (Para o Km e Toneladas não sumirem)
 df_calc.columns = df_calc.columns.str.strip()
 colunas_map = {c.lower(): c for c in df_calc.columns}
 
@@ -64,6 +64,10 @@ for chave_min, nome_oficial in colunas_necessarias.items():
         df_calc[nome_oficial] = 0.0
 
 for col in colunas_necessarias.values():
+    # 🛠️ CORREÇÃO: Troca vírgula por ponto ANTES de forçar a ser número!
+    if df_calc[col].dtype == 'object': 
+        df_calc[col] = df_calc[col].astype(str).str.replace(',', '.', regex=False)
+    
     df_calc[col] = pd.to_numeric(df_calc[col], errors='coerce').fillna(0)
 
 df_jornada = df_calc.groupby('Setor').mean(numeric_only=True).reset_index()
@@ -164,7 +168,7 @@ df_resultado['Toneladas Simulada'] = df_resultado['Ton Atual'] * df_resultado['F
 df_resultado['Combustível Simulado'] = df_resultado['Combustível Atual'] * df_resultado['Fator']
 df_resultado['Km Improdutivo Simulado'] = df_resultado['Km Improdutivo'] * df_resultado['Fator']
 
-# LÓGICA BLINDADA DE VIAGENS (Com base na Tonelada e Capacidade)
+# LÓGICA BLINDADA DE VIAGENS
 df_resultado['Viagens Projetadas'] = np.where(
     abs(df_resultado['Fator'] - 1.0) < 0.001, 
     df_resultado['Viagens Atual'], 
