@@ -37,7 +37,7 @@ if df_filtrado.empty:
     st.warning("Nenhum dado para este filtro.")
     st.stop()
 
-# --- PREPARAÇÃO E LIMPEZA DE DADOS (MÉTODO SIMPLES E CORRETO) ---
+# --- PREPARAÇÃO E LIMPEZA DE DADOS (MÉTODO BLINDADO) ---
 def extrair_horas(hora_str):
     try:
         h, m, s = map(int, str(hora_str).split(':'))
@@ -45,18 +45,25 @@ def extrair_horas(hora_str):
     except: return np.nan
 
 df_calc = df_filtrado.copy()
+
+# Remove espaços ocultos nos nomes das colunas
+df_calc.columns = df_calc.columns.str.strip()
+
 df_calc['Setor'] = pd.to_numeric(df_calc['Setor'], errors='coerce').fillna(0).astype(int).astype(str)
 df_calc['Horas_Dec'] = df_calc['Horas Trabalhadas'].apply(extrair_horas) if 'Horas Trabalhadas' in df_calc.columns else 7.33
 
-# Força a existência das colunas, sem quebrar os números que já estão corretos
+# Força a existência das colunas e extrai apenas os números (resolve o problema do Km zerado)
 colunas_numericas = ['Viagens', 'Km Total', 'Toneladas', 'Combustível', 'Km Improdutivo', 'Produtividade (t/h)']
 for col in colunas_numericas:
     if col not in df_calc.columns:
         df_calc[col] = 0.0
     else:
-        # Se por acaso vier como texto com vírgula, arruma. Se já for número, ignora.
         if df_calc[col].dtype == 'object':
-            df_calc[col] = df_calc[col].astype(str).str.replace(',', '.', regex=False)
+            # Troca vírgula por ponto
+            temp_col = df_calc[col].astype(str).str.replace(',', '.', regex=False)
+            # Extrai apenas a parte numérica (ignora letras como "km" ou espaços)
+            temp_col = temp_col.str.extract(r'(\d+\.?\d*)')[0]
+            df_calc[col] = temp_col
         df_calc[col] = pd.to_numeric(df_calc[col], errors='coerce').fillna(0.0)
 
 df_jornada = df_calc.groupby('Setor').mean(numeric_only=True).reset_index()
