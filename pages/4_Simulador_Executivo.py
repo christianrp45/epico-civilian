@@ -2,12 +2,12 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
-from kpis import format_horas_hhmmss
+from kpis import format_horas_hhmmss, format_number_br
 
 st.set_page_config(page_title="Simulador Executivo", page_icon="🛠️", layout="wide")
 
 st.title("🛠️ Simulador Executivo (Manual)")
-st.caption("Suas regras ficam salvas na tela. Navegue pelo sistema e, quando pronto, envie o cenário para o Relatório.")
+st.caption("Suas regras ficam salvas na memória. Navegue pelo sistema e, quando pronto, envie o cenário final para o Relatório.")
 
 # --- CONFIGURAÇÕES E DADOS ---
 if "epico_df" not in st.session_state:
@@ -48,8 +48,22 @@ df_calc = df_filtrado.copy()
 df_calc['Setor'] = pd.to_numeric(df_calc['Setor'], errors='coerce').fillna(0).astype(int).astype(str)
 df_calc['Horas_Dec'] = df_calc['Horas Trabalhadas'].apply(extrair_horas) if 'Horas Trabalhadas' in df_calc.columns else 7.33
 
-for col in ['Viagens', 'Km Total', 'Toneladas', 'Combustível', 'Km Improdutivo', 'Produtividade (t/h)']:
-    if col not in df_calc.columns: df_calc[col] = 0.0
+# BUSCADOR INTELIGENTE DE COLUNAS (Evita que o Km fique zero por erro de digitação no Excel)
+df_calc.columns = df_calc.columns.str.strip()
+colunas_map = {c.lower(): c for c in df_calc.columns}
+
+colunas_necessarias = {
+    'viagens': 'Viagens', 'km total': 'Km Total', 'toneladas': 'Toneladas', 
+    'combustível': 'Combustível', 'km improdutivo': 'Km Improdutivo', 'produtividade (t/h)': 'Produtividade (t/h)'
+}
+
+for chave_min, nome_oficial in colunas_necessarias.items():
+    if chave_min in colunas_map:
+        df_calc.rename(columns={colunas_map[chave_min]: nome_oficial}, inplace=True)
+    elif nome_oficial not in df_calc.columns:
+        df_calc[nome_oficial] = 0.0
+
+for col in colunas_necessarias.values():
     df_calc[col] = pd.to_numeric(df_calc[col], errors='coerce').fillna(0)
 
 df_jornada = df_calc.groupby('Setor').mean(numeric_only=True).reset_index()
@@ -63,7 +77,8 @@ df_jornada.rename(columns={
 }, inplace=True)
 
 df_jornada['Horas Atual (h)'] = df_jornada['Horas Atual (h)'].round(2)
-df_jornada['Viagens Atual'] = np.ceil(df_jornada['Viagens Atual']) # Trava as viagens em números inteiros
+df_jornada['Viagens Atual'] = np.ceil(df_jornada['Viagens Atual']) 
+df_jornada['Capacidade (t)'] = 9.5 # Base para cálculo de viagens
 
 # --- BALANÇO DE NECESSIDADES ---
 st.markdown("---")
@@ -90,7 +105,6 @@ st.dataframe(df_bal_view[['Setor', 'Horas Atual', 'Status', 'Desvio da Média', 
 st.markdown("---")
 st.subheader("⚙️ 3. Otimização Manual Múltipla (De -> Para)")
 
-# Memória persistente para as linhas
 if "regras_dinamicas" not in st.session_state:
     st.session_state["regras_dinamicas"] = [{"doador": "Nenhum", "receptor": "Nenhum", "horas": 1.0}]
 
@@ -114,11 +128,9 @@ st.markdown("<br>", unsafe_allow_html=True)
 opcoes_setores = ["Nenhum"] + df_jornada['Setor'].tolist()
 transferencias_validas = []
 
-# Gera as linhas dinâmicas na tela
 for i, regra in enumerate(st.session_state["regras_dinamicas"]):
     c1, c2, c3 = st.columns(3)
     
-    # Atualiza a memória instantaneamente quando você altera um valor
     def update_rule(index=i):
         st.session_state["regras_dinamicas"][index]["doador"] = st.session_state[f"d_{index}"]
         st.session_state["regras_dinamicas"][index]["receptor"] = st.session_state[f"r_{index}"]
@@ -152,11 +164,11 @@ df_resultado['Toneladas Simulada'] = df_resultado['Ton Atual'] * df_resultado['F
 df_resultado['Combustível Simulado'] = df_resultado['Combustível Atual'] * df_resultado['Fator']
 df_resultado['Km Improdutivo Simulado'] = df_resultado['Km Improdutivo'] * df_resultado['Fator']
 
-# TRAVA ABSOLUTA DE VIAGENS (Resolve a Viagem Fantasma)
+# LÓGICA BLINDADA DE VIAGENS (Com base na Tonelada e Capacidade)
 df_resultado['Viagens Projetadas'] = np.where(
-    abs(df_resultado['Fator'] - 1.0) < 0.001, # Se a alteração for zero...
-    df_resultado['Viagens Atual'],            # Mantém estritamente igual
-    np.ceil(df_resultado['Viagens Atual'] * df_resultado['Fator']) # Se mudou, recalcula
+    abs(df_resultado['Fator'] - 1.0) < 0.001, 
+    df_resultado['Viagens Atual'], 
+    np.maximum(1, np.ceil(df_resultado['Toneladas Simulada'] / df_resultado['Capacidade (t)']))
 )
 
 df_resultado['Alteração (h)'] = df_resultado['Horas Simulada (h)'] - df_resultado['Horas Atual (h)']
