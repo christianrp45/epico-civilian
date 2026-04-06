@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 from kpis import format_horas_hhmmss, format_number_br
+import re
 
 st.set_page_config(page_title="Simulador Executivo", page_icon="🛠️", layout="wide")
 
@@ -48,13 +49,14 @@ df_calc = df_filtrado.copy()
 df_calc['Setor'] = pd.to_numeric(df_calc['Setor'], errors='coerce').fillna(0).astype(int).astype(str)
 df_calc['Horas_Dec'] = df_calc['Horas Trabalhadas'].apply(extrair_horas) if 'Horas Trabalhadas' in df_calc.columns else 7.33
 
-# BUSCADOR INTELIGENTE E CORRETOR DE VÍRGULAS (Para o Km e Toneladas não sumirem)
-df_calc.columns = df_calc.columns.str.strip()
-colunas_map = {c.lower(): c for c in df_calc.columns}
+# --- SUPER BUSCADOR E LIXA DE DADOS ---
+# Limpa espaços e letras dos nomes das colunas
+colunas_map = {c.lower().replace(' ', '').strip(): c for c in df_calc.columns}
 
+# Mapeia nomes espremidos (para evitar problemas com espaços duplos no Excel)
 colunas_necessarias = {
-    'viagens': 'Viagens', 'km total': 'Km Total', 'toneladas': 'Toneladas', 
-    'combustível': 'Combustível', 'km improdutivo': 'Km Improdutivo', 'produtividade (t/h)': 'Produtividade (t/h)'
+    'viagens': 'Viagens', 'kmtotal': 'Km Total', 'toneladas': 'Toneladas', 
+    'combustível': 'Combustível', 'kmimprodutivo': 'Km Improdutivo', 'produtividade(t/h)': 'Produtividade (t/h)'
 }
 
 for chave_min, nome_oficial in colunas_necessarias.items():
@@ -64,11 +66,17 @@ for chave_min, nome_oficial in colunas_necessarias.items():
         df_calc[nome_oficial] = 0.0
 
 for col in colunas_necessarias.values():
-    # 🛠️ CORREÇÃO: Troca vírgula por ponto ANTES de forçar a ser número!
     if df_calc[col].dtype == 'object': 
+        # 1. Troca vírgula por ponto
         df_calc[col] = df_calc[col].astype(str).str.replace(',', '.', regex=False)
+        # 2. Arranca TODAS as letras (ex: 'km') e espaços, deixando SÓ os números
+        df_calc[col] = df_calc[col].str.replace(r'[^\d.]', '', regex=True)
     
-    df_calc[col] = pd.to_numeric(df_calc[col], errors='coerce').fillna(0)
+    # Substitui vazios que sobraram por zero
+    df_calc[col] = df_calc[col].replace('', '0')
+    df_calc[col] = pd.to_numeric(df_calc[col], errors='coerce').fillna(0.0)
+
+# ----------------------------------------
 
 df_jornada = df_calc.groupby('Setor').mean(numeric_only=True).reset_index()
 
@@ -82,7 +90,7 @@ df_jornada.rename(columns={
 
 df_jornada['Horas Atual (h)'] = df_jornada['Horas Atual (h)'].round(2)
 df_jornada['Viagens Atual'] = np.ceil(df_jornada['Viagens Atual']) 
-df_jornada['Capacidade (t)'] = 9.5 # Base para cálculo de viagens
+df_jornada['Capacidade (t)'] = 9.5 
 
 # --- BALANÇO DE NECESSIDADES ---
 st.markdown("---")
@@ -168,7 +176,6 @@ df_resultado['Toneladas Simulada'] = df_resultado['Ton Atual'] * df_resultado['F
 df_resultado['Combustível Simulado'] = df_resultado['Combustível Atual'] * df_resultado['Fator']
 df_resultado['Km Improdutivo Simulado'] = df_resultado['Km Improdutivo'] * df_resultado['Fator']
 
-# LÓGICA BLINDADA DE VIAGENS
 df_resultado['Viagens Projetadas'] = np.where(
     abs(df_resultado['Fator'] - 1.0) < 0.001, 
     df_resultado['Viagens Atual'], 
