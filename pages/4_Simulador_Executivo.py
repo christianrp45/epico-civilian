@@ -2,13 +2,12 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
-from kpis import format_horas_hhmmss, format_number_br
-import re
+from kpis import format_horas_hhmmss
 
 st.set_page_config(page_title="Simulador Executivo", page_icon="🛠️", layout="wide")
 
 st.title("🛠️ Simulador Executivo (Manual)")
-st.caption("Suas regras ficam salvas na memória. Navegue pelo sistema e, quando pronto, envie o cenário final para o Relatório.")
+st.caption("Suas regras ficam salvas na memória. Navegue pelo sistema e, quando pronto, envie o cenário para o Relatório.")
 
 # --- CONFIGURAÇÕES E DADOS ---
 if "epico_df" not in st.session_state:
@@ -38,7 +37,7 @@ if df_filtrado.empty:
     st.warning("Nenhum dado para este filtro.")
     st.stop()
 
-# --- PREPARAÇÃO E LIMPEZA DE DADOS ---
+# --- PREPARAÇÃO E LIMPEZA DE DADOS (MÉTODO SIMPLES E CORRETO) ---
 def extrair_horas(hora_str):
     try:
         h, m, s = map(int, str(hora_str).split(':'))
@@ -49,40 +48,23 @@ df_calc = df_filtrado.copy()
 df_calc['Setor'] = pd.to_numeric(df_calc['Setor'], errors='coerce').fillna(0).astype(int).astype(str)
 df_calc['Horas_Dec'] = df_calc['Horas Trabalhadas'].apply(extrair_horas) if 'Horas Trabalhadas' in df_calc.columns else 7.33
 
-# --- SUPER BUSCADOR E LIXA DE DADOS ---
-# Limpa espaços e letras dos nomes das colunas
-colunas_map = {c.lower().replace(' ', '').strip(): c for c in df_calc.columns}
-
-# Mapeia nomes espremidos (para evitar problemas com espaços duplos no Excel)
-colunas_necessarias = {
-    'viagens': 'Viagens', 'kmtotal': 'Km Total', 'toneladas': 'Toneladas', 
-    'combustível': 'Combustível', 'kmimprodutivo': 'Km Improdutivo', 'produtividade(t/h)': 'Produtividade (t/h)'
-}
-
-for chave_min, nome_oficial in colunas_necessarias.items():
-    if chave_min in colunas_map:
-        df_calc.rename(columns={colunas_map[chave_min]: nome_oficial}, inplace=True)
-    elif nome_oficial not in df_calc.columns:
-        df_calc[nome_oficial] = 0.0
-
-for col in colunas_necessarias.values():
-    if df_calc[col].dtype == 'object': 
-        # 1. Troca vírgula por ponto
-        df_calc[col] = df_calc[col].astype(str).str.replace(',', '.', regex=False)
-        # 2. Arranca TODAS as letras (ex: 'km') e espaços, deixando SÓ os números
-        df_calc[col] = df_calc[col].str.replace(r'[^\d.]', '', regex=True)
-    
-    # Substitui vazios que sobraram por zero
-    df_calc[col] = df_calc[col].replace('', '0')
-    df_calc[col] = pd.to_numeric(df_calc[col], errors='coerce').fillna(0.0)
-
-# ----------------------------------------
+# Força a existência das colunas, sem quebrar os números que já estão corretos
+colunas_numericas = ['Viagens', 'Km Total', 'Toneladas', 'Combustível', 'Km Improdutivo', 'Produtividade (t/h)']
+for col in colunas_numericas:
+    if col not in df_calc.columns:
+        df_calc[col] = 0.0
+    else:
+        # Se por acaso vier como texto com vírgula, arruma. Se já for número, ignora.
+        if df_calc[col].dtype == 'object':
+            df_calc[col] = df_calc[col].astype(str).str.replace(',', '.', regex=False)
+        df_calc[col] = pd.to_numeric(df_calc[col], errors='coerce').fillna(0.0)
 
 df_jornada = df_calc.groupby('Setor').mean(numeric_only=True).reset_index()
 
 if df_jornada['Toneladas'].max() > 100:
     df_jornada['Toneladas'] = df_jornada['Toneladas'] / 1000
 
+# Renomeia o 'Km Total' para 'Km Atual' para padronizar a tabela
 df_jornada.rename(columns={
     'Horas_Dec': 'Horas Atual (h)', 'Km Total': 'Km Atual', 'Toneladas': 'Ton Atual',
     'Combustível': 'Combustível Atual', 'Viagens': 'Viagens Atual'
