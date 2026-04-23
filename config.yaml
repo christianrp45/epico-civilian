@@ -1,0 +1,136 @@
+# Configurações operacionais do município de Trindade-GO
+# Edite este arquivo para adaptar o sistema a outro município sem alterar código-fonte.
+
+municipio: Trindade
+estado: GO
+
+operacional:
+  limite_horas: 9.3333      # 9h 20m — limite legal de jornada
+  meta_horas: 7.3333        # 7h 20m — jornada ideal de equilíbrio
+  velocidade_media_aterro_kmh: 20.0
+  overhead_por_viagem_h: 0.5  # tempo fixo adicional por viagem extra ao aterro (trâmite + espera)
+  dias_uteis_mes: 26
+
+caminhoes:
+  Toco: 9.5
+  Trucado: 13.5
+
+# Feriados nacionais + municipais com impacto na operação.
+# Adicione ou remova datas no formato YYYY-MM-DD.
+feriados:
+  - "2026-01-01"   # Ano Novo
+  - "2026-04-03"   # Sexta-feira Santa
+  - "2026-04-21"   # Tiradentes
+  - "2026-05-01"   # Dia do Trabalho
+  - "2026-06-04"   # Corpus Christi
+  - "2026-09-07"   # Independência
+  - "2026-10-12"   # Nossa Senhora Aparecida
+  - "2026-11-02"   # Finados
+  - "2026-11-15"   # Proclamação da República
+  - "2026-12-25"   # Natal
+  - "2027-01-01"
+  - "2027-03-26"   # Sexta-feira Santa
+  - "2027-04-21"
+  - "2027-05-01"
+  - "2027-05-27"   # Corpus Christi
+  - "2027-09-07"
+  - "2027-10-12"
+  - "2027-11-02"
+  - "2027-11-15"
+  - "2027-12-25"
+
+# Setores cujo turno deve ser forçado para NOTURNO independente do cadastro do Inlog.
+setores_noturnos:
+  - "3001"
+  - "3002"
+  - "3003"
+  - "3004"
+  - "3005"
+  - "5001"
+  - "5002"
+  - "5003"
+  - "5004"
+  - "5005"
+
+# Mapa completo de setores: distância ao aterro, turno operacional e frequência de coleta.
+setores:
+  "2000":
+    distancia_aterro_km: 2.43
+    turno: Matutino
+    frequencia: "Diária"
+  "2001":
+    distancia_aterro_km: 4.90
+    turno: Matutino
+    frequencia: "Seg/Qua/Sex"
+  "2002":
+    distancia_aterro_km: 5.02
+    turno: Matutino
+    frequencia: "Seg/Qua/Sex"
+  "2003":
+    distancia_aterro_km: 11.13
+    turno: Matutino
+    frequencia: "Seg/Qua/Sex"
+  "2004":
+    distancia_aterro_km: 12.30
+    turno: Matutino
+    frequencia: "Seg/Qua/Sex"
+  "3000":
+    distancia_aterro_km: 4.14
+    turno: Matutino
+    frequencia: "Diária"
+  "3001":
+    distancia_aterro_km: 2.10
+    turno: Vespertino
+    frequencia: "Seg/Qua/Sex"
+  "3002":
+    distancia_aterro_km: 9.00
+    turno: Vespertino
+    frequencia: "Seg/Qua/Sex"
+  "3003":
+    distancia_aterro_km: 15.39
+    turno: Vespertino
+    frequencia: "Seg/Qua/Sex"
+  "3004":
+    distancia_aterro_km: 13.70
+    turno: Vespertino
+    frequencia: "Seg/Qua/Sex"
+  "3005":
+    distancia_aterro_km: 4.78
+    turno: Vespertino
+    frequencia: "Seg/Qua/Sex"
+  "4001":
+    distancia_aterro_km: 2.81
+    turno: Matutino
+    frequencia: "Ter/Qui/Sab"
+  "4002":
+    distancia_aterro_km: 3.56
+    turno: Matutino
+    frequencia: "Ter/Qui/Sab"
+  "4003":
+    distancia_aterro_km: 12.15
+    turno: Matutino
+    frequencia: "Ter/Qui/Sab"
+  "4004":
+    distancia_aterro_km: 14.58
+    turno: Matutino
+    frequencia: "Ter/Qui/Sab"
+  "5001":
+    distancia_aterro_km: 3.40
+    turno: Vespertino
+    frequencia: "Ter/Qui/Sab"
+  "5002":
+    distancia_aterro_km: 5.24
+    turno: Vespertino
+    frequencia: "Ter/Qui/Sab"
+  "5003":
+    distancia_aterro_km: 14.76
+    turno: Vespertino
+    frequencia: "Ter/Qui/Sab"
+  "5004":
+    distancia_aterro_km: 13.96
+    turno: Vespertino
+    frequencia: "Ter/Qui/Sab"
+  "5005":
+    distancia_aterro_km: 7.38
+    turno: Vespertino
+    frequencia: "Ter/Qui/Sab"
