@@ -1,0 +1,8 @@
+{
+  "buildCommand": "cd citylink && npm install && npm run build",
+  "outputDirectory": "citylink/dist",
+  "installCommand": "echo skip",
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
