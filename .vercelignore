@@ -1,0 +1,13 @@
+app.py
+requirements.txt
+helpers.py
+kpis.py
+limpador_inlog.py
+iniciar_epico.bat
+pages/
+__pycache__/
+*.csv
+*.xlsx
+rotas_geojson/
+RELATORIO_ROTAS_TRINDADE.md
+README.md
