@@ -1,4 +1,4 @@
-import type { User, Business, Event, Church, PrayerGroup, Testimonial, VolunteerOpportunity, Message } from '../types';
+import type { User, Business, Event, Church, PrayerGroup, Testimonial, VolunteerOpportunity, Message, SamaritanAlert } from '../types';
 
 export const MOCK_USERS: User[] = [
   {
@@ -15,6 +15,7 @@ export const MOCK_USERS: User[] = [
     homeLocation: { lat: -16.6864, lng: -49.2643, address: 'Setor Bueno, Goiânia' },
     churchId: 'c1',
     bio: 'Amante de tecnologia e da família.',
+    helpOffer: 'Ajudo com problemas de computador, internet e pequenos reparos eletrônicos.',
   },
   {
     id: 'u2',
@@ -30,6 +31,7 @@ export const MOCK_USERS: User[] = [
     homeLocation: { lat: -16.6780, lng: -49.2530, address: 'Jardim Goiás, Goiânia' },
     churchId: 'c1',
     bio: 'Servindo a Deus através da medicina.',
+    helpOffer: 'Posso orientar sobre saúde, primeiros socorros e encaminhar para atendimento médico.',
   },
   {
     id: 'u3',
@@ -45,6 +47,7 @@ export const MOCK_USERS: User[] = [
     homeLocation: { lat: -16.6910, lng: -49.2710, address: 'Setor Oeste, Goiânia' },
     churchId: 'c1',
     bio: 'Servo do Senhor. Igreja Comunidade da Graça.',
+    helpOffer: 'Estou disponível para orar, aconselhar e visitar idosos e enfermos.',
   },
   {
     id: 'u4',
@@ -59,6 +62,7 @@ export const MOCK_USERS: User[] = [
     location: { lat: -16.6730, lng: -49.2580, address: 'Setor Marista, Goiânia' },
     homeLocation: { lat: -16.6730, lng: -49.2580, address: 'Setor Marista, Goiânia' },
     bio: 'Educadora apaixonada.',
+    helpOffer: 'Dou aulas de reforço de português e matemática para crianças e adolescentes.',
   },
   {
     id: 'u5',
@@ -72,6 +76,7 @@ export const MOCK_USERS: User[] = [
     friends: [],
     location: { lat: -16.6650, lng: -49.2450, address: 'Setor Aeroporto, Goiânia' },
     churchId: 'c2',
+    helpOffer: 'Ajudo com transporte, mudanças e posso emprestar ferramentas de trabalho.',
   },
 ];
 
@@ -88,6 +93,7 @@ export const MOCK_BUSINESSES: Business[] = [
     rating: 4.8,
     reviewCount: 127,
     loyaltyPoints: 100,
+    communityRecommendations: ['u2', 'u3', 'u4'],
   },
   {
     id: 'b2',
@@ -100,6 +106,7 @@ export const MOCK_BUSINESSES: Business[] = [
     ownerId: 'u2',
     rating: 4.9,
     reviewCount: 89,
+    communityRecommendations: ['u1', 'u3'],
   },
   {
     id: 'b3',
@@ -113,6 +120,7 @@ export const MOCK_BUSINESSES: Business[] = [
     rating: 4.5,
     reviewCount: 203,
     loyaltyPoints: 150,
+    communityRecommendations: ['u1', 'u2', 'u4', 'u5'],
   },
   {
     id: 'b4',
@@ -125,6 +133,32 @@ export const MOCK_BUSINESSES: Business[] = [
     ownerId: 'u4',
     rating: 4.7,
     reviewCount: 56,
+    communityRecommendations: ['u1', 'u2'],
+  },
+];
+
+export const MOCK_SAMARITAN_ALERTS: SamaritanAlert[] = [
+  {
+    id: 'sa1',
+    userId: 'u4',
+    userName: 'Ana Costa',
+    userAvatar: 'https://i.pravatar.cc/150?img=9',
+    type: 'practical_help',
+    description: 'Pneu furado na Av. T-64! Preciso de ajuda para trocar ou conseguir um mecânico.',
+    location: { lat: -16.6740, lng: -49.2570, address: 'Av. T-64, Setor Marista' },
+    createdAt: new Date(Date.now() - 15 * 60 * 1000),
+    status: 'active',
+  },
+  {
+    id: 'sa2',
+    userId: 'u2',
+    userName: 'Maria Santos',
+    userAvatar: 'https://i.pravatar.cc/150?img=5',
+    type: 'prayer',
+    description: 'Por favor, orem por minha mãe que está internada no hospital. Precisamos de fé e intercessão.',
+    location: { lat: -16.6790, lng: -49.2540, address: 'Jardim Goiás, Goiânia' },
+    createdAt: new Date(Date.now() - 45 * 60 * 1000),
+    status: 'active',
   },
 ];
 

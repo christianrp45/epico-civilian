@@ -1,18 +1,20 @@
 import { useState } from 'react';
 import { useStore } from '../store/useStore';
-import { MapPin, Phone, Mail, Briefcase, Church, LogOut, Edit3, Check, ToggleLeft, ToggleRight } from 'lucide-react';
+import { MapPin, Phone, Mail, Briefcase, Church, LogOut, Edit3, Check, HandHeart } from 'lucide-react';
 
 export default function ProfilePage() {
   const { currentUser, logout, toggleOpenToVisits } = useStore();
   const [editing, setEditing] = useState(false);
-  const [bio, setBio] = useState(currentUser?.bio ?? '');
+  const [helpOffer, setHelpOffer] = useState(currentUser?.helpOffer ?? '');
 
   if (!currentUser) return null;
+
+  const isMesaPosta = currentUser.openToVisits;
 
   return (
     <div className="flex flex-col h-full overflow-y-auto bg-slate-50">
       {/* Header banner */}
-      <div className="bg-gradient-to-br from-blue-600 to-blue-800 h-32 relative flex-shrink-0">
+      <div className="bg-gradient-to-br from-indigo-600 to-indigo-800 h-32 relative flex-shrink-0">
         <div className="absolute -bottom-12 left-1/2 -translate-x-1/2">
           <img
             src={currentUser.avatar}
@@ -23,48 +25,67 @@ export default function ProfilePage() {
       </div>
 
       <div className="pt-16 px-4 pb-8">
-        {/* Name and profession */}
-        <div className="text-center mb-1">
+        {/* Nome e profissão */}
+        <div className="text-center mb-4">
           <h2 className="text-xl font-bold text-slate-800">{currentUser.name}</h2>
           <p className="text-slate-500 text-sm">{currentUser.profession}</p>
+          {currentUser.churchId && (
+            <p className="text-xs text-indigo-500 mt-0.5 flex items-center justify-center gap-1">
+              <Church size={11} /> Igreja Comunidade da Graça
+            </p>
+          )}
         </div>
 
-        {/* Open to visits toggle */}
-        <div className="flex items-center justify-center gap-3 my-4">
-          <button
-            onClick={toggleOpenToVisits}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl font-semibold text-sm transition-colors ${
-              currentUser.openToVisits
-                ? 'bg-green-100 text-green-700 border border-green-200'
-                : 'bg-slate-100 text-slate-500 border border-slate-200'
-            }`}
-          >
-            {currentUser.openToVisits
-              ? <><ToggleRight size={18} /> Aberto para visitas</>
-              : <><ToggleLeft size={18} /> Fechado para visitas</>}
-          </button>
-        </div>
+        {/* Toggle Mesa Posta / Requer Aviso */}
+        <button
+          onClick={toggleOpenToVisits}
+          className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl mb-4 transition-all ${
+            isMesaPosta
+              ? 'bg-emerald-50 border-2 border-emerald-400 text-emerald-700'
+              : 'bg-amber-50 border-2 border-amber-300 text-amber-700'
+          }`}
+        >
+          <div className="text-left">
+            <p className="font-bold text-base">
+              {isMesaPosta ? '🟢 Mesa Posta' : '🟡 Requer Aviso'}
+            </p>
+            <p className="text-xs font-normal opacity-75 mt-0.5">
+              {isMesaPosta ? 'Portas abertas — pode vir sem avisar' : 'Envie uma solicitação antes de visitar'}
+            </p>
+          </div>
+          <div className={`w-12 h-6 rounded-full transition-colors relative flex-shrink-0 ${isMesaPosta ? 'bg-emerald-400' : 'bg-slate-300'}`}>
+            <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${isMesaPosta ? 'translate-x-6' : 'translate-x-0.5'}`} />
+          </div>
+        </button>
 
-        {/* Bio */}
-        <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 mb-4">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Sobre mim</span>
-            <button onClick={() => setEditing(!editing)} className="text-blue-500">
+        {/* Como posso ajudar — Meus Talentos */}
+        <div className="bg-white rounded-2xl p-4 shadow-sm border border-indigo-100 mb-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <HandHeart size={18} className="text-indigo-600" />
+              <span className="text-sm font-bold text-indigo-700">Como posso ajudar?</span>
+            </div>
+            <button onClick={() => setEditing(!editing)} className="text-indigo-400 hover:text-indigo-600">
               {editing ? <Check size={16} /> : <Edit3 size={16} />}
             </button>
           </div>
           {editing ? (
             <textarea
-              value={bio}
-              onChange={e => setBio(e.target.value)}
-              className="w-full text-sm text-slate-700 border border-slate-200 rounded-xl p-2 resize-none h-20 focus:outline-none focus:ring-2 focus:ring-blue-400"
+              value={helpOffer}
+              onChange={e => setHelpOffer(e.target.value)}
+              placeholder="Ex: Ajudo com pequenos consertos, dou aulas de violão..."
+              className="w-full text-sm text-slate-700 border border-indigo-200 rounded-xl p-3 resize-none h-24 focus:outline-none focus:ring-2 focus:ring-indigo-400"
             />
           ) : (
-            <p className="text-sm text-slate-600">{bio || 'Nenhuma descrição ainda.'}</p>
+            <p className="text-sm text-slate-600 leading-relaxed">
+              {helpOffer || (
+                <span className="text-slate-400 italic">Toque no lápis e conte como você pode servir a comunidade.</span>
+              )}
+            </p>
           )}
         </div>
 
-        {/* Info */}
+        {/* Informações de contato */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-100 divide-y divide-slate-50 mb-4">
           {[
             { icon: <Mail size={16} />, label: 'E-mail', value: currentUser.email },
@@ -73,7 +94,7 @@ export default function ProfilePage() {
             currentUser.homeLocation ? { icon: <MapPin size={16} />, label: 'Endereço', value: currentUser.homeLocation.address } : null,
           ].filter(Boolean).map((item, i) => (
             <div key={i} className="flex items-center gap-3 px-4 py-3">
-              <span className="text-blue-500">{item!.icon}</span>
+              <span className="text-indigo-500">{item!.icon}</span>
               <div>
                 <p className="text-xs text-slate-400">{item!.label}</p>
                 <p className="text-sm text-slate-700">{item!.value}</p>
@@ -82,32 +103,18 @@ export default function ProfilePage() {
           ))}
         </div>
 
-        {/* Church */}
-        {currentUser.churchId && (
-          <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 mb-4 flex items-center gap-3">
-            <Church size={20} className="text-purple-500" />
-            <div>
-              <p className="text-xs text-slate-400">Igreja</p>
-              <p className="text-sm font-semibold text-slate-700">Igreja Comunidade da Graça</p>
-            </div>
-          </div>
-        )}
-
         {/* Stats */}
-        <div className="grid grid-cols-3 gap-3 mb-6">
-          {[
-            { label: 'Amigos', value: currentUser.friends.length },
-            { label: 'Visitas', value: 12 },
-            { label: 'Pontos', value: 340 },
-          ].map(s => (
-            <div key={s.label} className="bg-white rounded-2xl p-3 shadow-sm border border-slate-100 text-center">
-              <p className="text-2xl font-bold text-blue-600">{s.value}</p>
-              <p className="text-xs text-slate-500 mt-0.5">{s.label}</p>
-            </div>
-          ))}
+        <div className="grid grid-cols-2 gap-3 mb-6">
+          <div className="bg-white rounded-2xl p-3 shadow-sm border border-slate-100 text-center">
+            <p className="text-2xl font-bold text-indigo-600">{currentUser.friends.length}</p>
+            <p className="text-xs text-slate-500 mt-0.5">Amigos na comunidade</p>
+          </div>
+          <div className="bg-white rounded-2xl p-3 shadow-sm border border-slate-100 text-center">
+            <p className="text-2xl font-bold text-emerald-600">12</p>
+            <p className="text-xs text-slate-500 mt-0.5">Visitas realizadas</p>
+          </div>
         </div>
 
-        {/* Logout */}
         <button
           onClick={logout}
           className="w-full py-3 rounded-xl bg-red-50 text-red-500 font-semibold flex items-center justify-center gap-2 hover:bg-red-100 transition-colors border border-red-100"

@@ -1,11 +1,16 @@
 import { useState } from 'react';
 import { useStore } from '../store/useStore';
-import { Church, Users, Heart, HandHeart, BookOpen, ChevronRight, MapPin, Phone, CheckCircle, Plus, ThumbsUp, MessageCircle } from 'lucide-react';
+import { Church, Users, Heart, HandHeart, BookOpen, ChevronRight, MapPin, Phone, CheckCircle, Plus, ThumbsUp, MessageCircle, AlertTriangle, X } from 'lucide-react';
+import type { SamaritanAlert } from '../types';
 
 type CommunityTab = 'churches' | 'prayer' | 'testimonials' | 'volunteer';
 
 export default function CommunityPage() {
   const [tab, setTab] = useState<CommunityTab>('churches');
+  const [showSamaritanModal, setShowSamaritanModal] = useState(false);
+  const { currentUser, addSamaritanAlert, userLocation } = useStore();
+  const [alertType, setAlertType] = useState<SamaritanAlert['type']>('practical_help');
+  const [alertDesc, setAlertDesc] = useState('');
 
   const tabs: { id: CommunityTab; label: string; icon: React.ReactNode }[] = [
     { id: 'churches', label: 'Igrejas', icon: <Church size={14} /> },
@@ -14,8 +19,22 @@ export default function CommunityPage() {
     { id: 'volunteer', label: 'Voluntário', icon: <HandHeart size={14} /> },
   ];
 
+  const handleSendAlert = () => {
+    if (!currentUser || !alertDesc.trim()) return;
+    addSamaritanAlert({
+      userId: currentUser.id,
+      userName: currentUser.name,
+      userAvatar: currentUser.avatar,
+      type: alertType,
+      description: alertDesc.trim(),
+      location: userLocation ?? currentUser.homeLocation ?? { lat: -16.6864, lng: -49.2643, address: 'Goiânia' },
+    });
+    setAlertDesc('');
+    setShowSamaritanModal(false);
+  };
+
   return (
-    <div className="flex flex-col h-full bg-slate-50">
+    <div className="flex flex-col h-full bg-slate-50 relative">
       {/* Tabs */}
       <div className="bg-white border-b border-slate-100 px-4 py-3">
         <div className="flex gap-2 overflow-x-auto no-scrollbar">
@@ -24,7 +43,7 @@ export default function CommunityPage() {
               key={t.id}
               onClick={() => setTab(t.id)}
               className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors ${
-                tab === t.id ? 'bg-purple-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                tab === t.id ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
               }`}
             >
               {t.icon} {t.label}
@@ -33,12 +52,74 @@ export default function CommunityPage() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto pb-20">
         {tab === 'churches' && <ChurchesTab />}
         {tab === 'prayer' && <PrayerGroupsTab />}
         {tab === 'testimonials' && <TestimonialsTab />}
         {tab === 'volunteer' && <VolunteerTab />}
       </div>
+
+      {/* FAB — Botão Bom Samaritano */}
+      <button
+        onClick={() => setShowSamaritanModal(true)}
+        className="absolute bottom-4 right-4 bg-amber-500 text-white rounded-2xl px-4 py-3 shadow-lg flex items-center gap-2 font-bold text-sm hover:bg-amber-600 transition-colors z-10"
+      >
+        <AlertTriangle size={18} /> Preciso de Ajuda!
+      </button>
+
+      {/* Modal Samaritano — Bottom Sheet */}
+      {showSamaritanModal && (
+        <div className="absolute inset-0 bg-black/40 z-20 flex items-end" onClick={() => setShowSamaritanModal(false)}>
+          <div className="w-full bg-white rounded-t-3xl p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <HandHeart size={20} className="text-amber-500" />
+                <p className="font-bold text-slate-800">Botão Bom Samaritano</p>
+              </div>
+              <button onClick={() => setShowSamaritanModal(false)} className="text-slate-400">
+                <X size={20} />
+              </button>
+            </div>
+            <p className="text-xs text-slate-500 mb-4">Sua comunidade será notificada. Alguém próximo pode ajudar.</p>
+
+            {/* Tipo */}
+            <div className="flex gap-2 mb-4">
+              {([
+                { id: 'practical_help', label: '🔧 Ajuda Prática' },
+                { id: 'prayer', label: '🙏 Oração' },
+                { id: 'urgency', label: '🚨 Urgência' },
+              ] as const).map(opt => (
+                <button
+                  key={opt.id}
+                  onClick={() => setAlertType(opt.id)}
+                  className={`flex-1 py-2 rounded-xl text-xs font-semibold border transition-colors ${
+                    alertType === opt.id
+                      ? 'bg-amber-500 text-white border-amber-500'
+                      : 'bg-slate-50 text-slate-600 border-slate-200'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+
+            <textarea
+              value={alertDesc}
+              onChange={e => setAlertDesc(e.target.value)}
+              placeholder="Descreva o que você precisa..."
+              className="w-full px-3 py-3 border border-slate-200 rounded-2xl text-sm resize-none h-24 focus:outline-none focus:ring-2 focus:ring-amber-400 mb-4"
+            />
+
+            <button
+              onClick={handleSendAlert}
+              disabled={!alertDesc.trim()}
+              className="w-full py-3 bg-amber-500 text-white font-bold rounded-2xl flex items-center justify-center gap-2 hover:bg-amber-600 transition-colors disabled:opacity-40"
+            >
+              <AlertTriangle size={16} /> Enviar Alerta para a Comunidade
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
