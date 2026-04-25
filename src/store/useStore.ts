@@ -2,9 +2,9 @@ import { create } from 'zustand';
 import type {
   User, Business, Event, Message, Church, PrayerGroup,
   Testimonial, VolunteerOpportunity, VisitRequest, Notification,
-  Conversation, AppTab, LatLng,
+  Conversation, AppTab, LatLng, SamaritanAlert,
 } from '../types';
-import { MOCK_USERS, MOCK_BUSINESSES, MOCK_EVENTS, MOCK_CHURCHES, MOCK_PRAYER_GROUPS, MOCK_TESTIMONIALS, MOCK_VOLUNTEER, MOCK_MESSAGES } from '../utils/mockData';
+import { MOCK_USERS, MOCK_BUSINESSES, MOCK_EVENTS, MOCK_CHURCHES, MOCK_PRAYER_GROUPS, MOCK_TESTIMONIALS, MOCK_VOLUNTEER, MOCK_MESSAGES, MOCK_SAMARITAN_ALERTS } from '../utils/mockData';
 
 interface Store {
   currentUser: User | null;
@@ -23,6 +23,7 @@ interface Store {
   pendingVisitRequest: VisitRequest | null;
   userLocation: LatLng | null;
   isLoggedIn: boolean;
+  samaritanAlerts: SamaritanAlert[];
 
   login: (user: User) => void;
   logout: () => void;
@@ -40,6 +41,8 @@ interface Store {
   joinPrayerGroup: (groupId: string) => void;
   enrollVolunteer: (opportunityId: string) => void;
   addFriend: (userId: string) => void;
+  addSamaritanAlert: (alert: Omit<SamaritanAlert, 'id' | 'createdAt' | 'status'>) => void;
+  resolveSamaritanAlert: (id: string) => void;
 }
 
 export const useStore = create<Store>((set, get) => ({
@@ -59,6 +62,7 @@ export const useStore = create<Store>((set, get) => ({
   pendingVisitRequest: null,
   userLocation: null,
   isLoggedIn: false,
+  samaritanAlerts: MOCK_SAMARITAN_ALERTS,
 
   login: (user) => {
     const convs: Conversation[] = [];
@@ -263,5 +267,21 @@ export const useStore = create<Store>((set, get) => ({
       ? { ...currentUser, friends: currentUser.friends.filter(f => f !== userId) }
       : { ...currentUser, friends: [...currentUser.friends, userId] };
     set({ currentUser: updated, users: users.map(u => u.id === currentUser.id ? updated : u) });
+  },
+
+  addSamaritanAlert: (alertData) => {
+    const alert: SamaritanAlert = {
+      ...alertData,
+      id: crypto.randomUUID(),
+      createdAt: new Date(),
+      status: 'active',
+    };
+    set(s => ({ samaritanAlerts: [alert, ...s.samaritanAlerts] }));
+  },
+
+  resolveSamaritanAlert: (id) => {
+    set(s => ({
+      samaritanAlerts: s.samaritanAlerts.map(a => a.id === id ? { ...a, status: 'resolved' } : a),
+    }));
   },
 }));

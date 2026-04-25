@@ -15,6 +15,7 @@ export interface User {
   friends: string[];
   churchId?: string;
   bio?: string;
+  helpOffer?: string;
 }
 
 export interface LatLng {
@@ -36,6 +37,19 @@ export interface Business {
   reviewCount: number;
   logo?: string;
   loyaltyPoints?: number;
+  communityRecommendations: string[];
+}
+
+export interface SamaritanAlert {
+  id: string;
+  userId: string;
+  userName: string;
+  userAvatar: string;
+  type: 'urgency' | 'prayer' | 'practical_help';
+  description: string;
+  location: LatLng;
+  createdAt: Date;
+  status: 'active' | 'resolved';
 }
 
 export type BusinessCategory =
@@ -142,6 +156,8 @@ export interface VolunteerOpportunity {
 }
 
 export type AppTab = 'map' | 'friends' | 'community' | 'business' | 'events' | 'chat' | 'profile';
+
+export type VisitStatus = 'mesa_posta' | 'requer_aviso';
 
 export type Notification = {
   id: string;
