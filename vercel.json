@@ -1,8 +1,0 @@
-{
-  "installCommand": "npm install --prefix citylink",
-  "buildCommand": "npm run build --prefix citylink",
-  "outputDirectory": "citylink/dist",
-  "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
-  ]
-}
