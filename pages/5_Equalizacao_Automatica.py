@@ -9,32 +9,10 @@ LIMITE_HORAS_PADRAO = 9 + 20 / 60
 META_PADRAO = 7 + 20 / 60
 CAP_BASE_TOCO = 9.5
 CAPACIDADES = {"Toco": 9.5, "Trucado": 13.5}
-
-DISTANCIAS_ATERRO = {
-    "2000": 2.43, "2001": 4.90, "2002": 5.02, "2003": 11.13, "2004": 12.30,
-    "3000": 4.14, "3001": 2.10, "3002": 9.00, "3003": 15.39, "3004": 13.70,
-    "3005": 4.78, "4001": 2.81, "4002": 3.56, "4003": 12.15, "4004": 14.58,
-    "5001": 3.40, "5002": 5.24, "5003": 14.76, "5004": 13.96, "5005": 7.38
-}
 VELOCIDADE_MEDIA_ATERRO = 20.0
 
-# --- MAPEAMENTO OPERACIONAL (DNA DE TRINDADE) ---
-MAPA_TURNOS = {
-    "2000": "Matutino", "2001": "Matutino", "2002": "Matutino", "2003": "Matutino", "2004": "Matutino",
-    "3000": "Matutino", "3001": "Vespertino", "3002": "Vespertino", "3003": "Vespertino", "3004": "Vespertino", "3005": "Vespertino",
-    "4001": "Matutino", "4002": "Matutino", "4003": "Matutino", "4004": "Matutino",
-    "5001": "Vespertino", "5002": "Vespertino", "5003": "Vespertino", "5004": "Vespertino", "5005": "Vespertino"
-}
-MAPA_FREQUENCIA = {
-    "2000": "Diária", "3000": "Diária",
-    "2001": "Seg/Qua/Sex", "2002": "Seg/Qua/Sex", "2003": "Seg/Qua/Sex", "2004": "Seg/Qua/Sex",
-    "3001": "Seg/Qua/Sex", "3002": "Seg/Qua/Sex", "3003": "Seg/Qua/Sex", "3004": "Seg/Qua/Sex", "3005": "Seg/Qua/Sex",
-    "4001": "Ter/Qui/Sab", "4002": "Ter/Qui/Sab", "4003": "Ter/Qui/Sab", "4004": "Ter/Qui/Sab",
-    "5001": "Ter/Qui/Sab", "5002": "Ter/Qui/Sab", "5003": "Ter/Qui/Sab", "5004": "Ter/Qui/Sab", "5005": "Ter/Qui/Sab"
-}
-
 def ceil_viagens(toneladas, capacidade):
-    if pd.isna(toneladas) or pd.isna(capacidade) or capacidade <= 0: return 0
+    if pd.isna(toneladas) or pd.isna(capacidade) or capacity <= 0: return 0
     toneladas = max(float(toneladas), 0.0)
     return int(math.ceil(toneladas / float(capacidade))) if toneladas > 0 else 0
 
@@ -91,15 +69,26 @@ def recomputar_fisica(df):
         v_orig = max(1, int(row["Viagens Atual"]))
         v_proj = max(1, int(row["Viagens Projetadas"]))
         delta_v = v_proj - v_orig
-        dist_ida = DISTANCIAS_ATERRO.get(str(row["Setor"]), 7.5)
-        km_extra_aterro = delta_v * (dist_ida * 2)
-        km_imp = max(0.0, float(row["Km Improdutivo"]) + km_extra_aterro)
+        
+        if 'Dist Aterro (km)' in row and 'Dist Garagem (km)' in row and row['Dist Aterro (km)'] > 0:
+            dist_ida = row['Dist Aterro (km)']
+            km_imp = row['Dist Garagem (km)'] + (v_proj * dist_ida * 2)
+            km_extra_aterro = delta_v * (dist_ida * 2)
+        else:
+            km_imp_atual = float(row["Km Improdutivo"])
+            dist_aterro_estimada = km_imp_atual / (v_orig * 2) if v_orig > 0 else 7.5
+            if dist_aterro_estimada > 40.0 or dist_aterro_estimada < 0.5:
+                dist_aterro_estimada = 7.5
+            km_extra_aterro = delta_v * (dist_aterro_estimada * 2)
+            km_imp = max(0.0, km_imp_atual + km_extra_aterro)
+            
         hr_extra = 0.0
         if delta_v > 0: hr_extra = (km_extra_aterro / VELOCIDADE_MEDIA_ATERRO) + (delta_v * 0.5)
         elif delta_v < 0: hr_extra = -((abs(km_extra_aterro) / VELOCIDADE_MEDIA_ATERRO) + (abs(delta_v) * 0.5))
         hr_imp = max(0.0, float(row["Horas Improdutivas"]) + hr_extra)
         novo_km_imp.append(km_imp)
         nova_hr_imp.append(hr_imp)
+        
     out["Km Improdutivo Simulado"] = novo_km_imp
     out["Horas Improdutivas Simuladas"] = nova_hr_imp
     out["Horas Simulada (h)"] = out["Horas Produtivas Simuladas"].fillna(0) + out["Horas Improdutivas Simuladas"].fillna(0)
@@ -107,7 +96,6 @@ def recomputar_fisica(df):
     out["Combustível Simulado"] = out["Km Simulado"] * out["L_por_km_real"]
     return ordenar_setores(out)
 
-# --- NOVO ALGORITMO C-LEVEL: TETRIS DE CAÇAMBA E EFEITO ESPONJA ---
 def equalizar_inteligente(df, alvo_horas=None, nome="Base"):
     sim = df.copy()
     plano_raw = []
@@ -121,7 +109,6 @@ def equalizar_inteligente(df, alvo_horas=None, nome="Base"):
         
         if doadores.empty or receptores.empty: break
         
-        # 1. Efeito Esponja: Ordena receptores priorizando caminhões Trucados (Gigantes primeiro)
         receptores["_is_trucado"] = receptores["Tipo Caminhão"] == "Trucado"
         receptores = receptores.sort_values(["_is_trucado", "Horas Simulada (h)"], ascending=[False, True])
 
@@ -135,38 +122,31 @@ def equalizar_inteligente(df, alvo_horas=None, nome="Base"):
                 prod_d = float(sim.loc[idx_d, "Produtividade Ref"]) if pd.notna(sim.loc[idx_d, "Produtividade Ref"]) else 1.0
                 if prod_d <= 0: prod_d = 1.0
                 
-                # Tons base para equilibrar apenas o relógio
                 tons_alvo = min(excesso_h, deficit_h) * 0.5 * prod_d 
                 
-                # Lógica Física das Caçambas
                 D_tons = float(sim.loc[idx_d, "Toneladas Simulada"])
                 D_cap = float(sim.loc[idx_d, "Capacidade (t)"])
                 R_tons = float(sim.loc[idx_r, "Toneladas Simulada"])
                 R_cap = float(sim.loc[idx_r, "Capacidade (t)"])
                 
-                # Descobre se o Doador tem uma viagem "quase vazia" (Resto)
                 D_resto = D_tons % D_cap
                 if D_resto < 0.01: D_resto = D_cap
                 
-                # Descobre quanto espaço vazio o Receptor tem nas viagens atuais dele
                 R_viagens = math.ceil(R_tons / R_cap) if R_tons > 0 else 1
                 R_espaco_livre = (R_viagens * R_cap) - R_tons
-                if R_espaco_livre < 0.01: R_espaco_livre = R_cap # Se tá cheio, permite abrir nova viagem
+                if R_espaco_livre < 0.01: R_espaco_livre = R_cap
 
                 tons_permitidas = tons_alvo
 
-                # 2. Tetris: Se o resto do doador for pequeno, empurra ele inteiro para matar 1 viagem!
                 if 0 < D_resto <= (tons_alvo * 1.5):
                     tons_permitidas = D_resto
 
-                # 3. Trava de Ociosidade: Tenta não estourar a caçamba atual do Receptor (exceto se for Trucado)
                 is_trucado = (sim.loc[idx_r, "Tipo Caminhão"] == "Trucado")
                 if tons_permitidas > R_espaco_livre and not is_trucado:
                     tons_permitidas = R_espaco_livre
 
                 if tons_permitidas < 0.05: continue
                 
-                # Executa a transferência de forma cirúrgica
                 horas_permitidas = tons_permitidas / prod_d
 
                 sim.loc[idx_d, "Horas Produtivas Simuladas"] = max(0.0, float(sim.loc[idx_d, "Horas Produtivas Simuladas"]) - horas_permitidas)
@@ -223,6 +203,9 @@ def criar_nova_rota(df, meta_horas):
         "Produtividade Ref": 0.0 if pd.isna(prod_media) else prod_media,
         "L_por_km_real": sim["L_por_km_real"].mean()
     }
+    if 'Dist Garagem (km)' in sim.columns: linha['Dist Garagem (km)'] = sim['Dist Garagem (km)'].mean()
+    if 'Dist Aterro (km)' in sim.columns: linha['Dist Aterro (km)'] = sim['Dist Aterro (km)'].mean()
+
     sim = pd.concat([sim, pd.DataFrame([linha])], ignore_index=True)
     sim = ordenar_setores(sim)
     novo_target = max(meta_horas, float(sim["Horas Simulada (h)"].sum()) / max(len(sim), 1))
@@ -251,14 +234,12 @@ def df_apresentacao(c):
 def grafico_horas(cenario, meta_horas, limite_horas, titulo):
     plot_df = ordenar_setores(cenario[["Setor", "Horas Atual (h)", "Horas Simulada (h)"]].copy())
     plot_df["Setor"] = plot_df["Setor"].astype(str)
-    atual_max = float(plot_df["Horas Atual (h)"].max())
     long_df = plot_df.melt(id_vars="Setor", value_vars=["Horas Atual (h)", "Horas Simulada (h)"], var_name="Série", value_name="Horas")
     long_df["Série"] = long_df["Série"].replace({"Horas Atual (h)": "Horas Atual", "Horas Simulada (h)": "Horas Simulada"})
     fig = px.bar(long_df, x="Setor", y="Horas", color="Série", barmode="group", title=titulo)
     fig.update_xaxes(type="category")
-    fig.add_hline(y=meta_horas, line_dash="dash", line_color="green", annotation_text=f"Meta ideal {format_horas_hhmmss(meta_horas)}")
-    fig.add_hline(y=limite_horas, line_dash="dash", line_color="yellow", annotation_text=f"Limite legal {format_horas_hhmmss(limite_horas)}")
-    fig.add_hline(y=atual_max, line_dash="dot", line_color="red", annotation_text=f"Topo atual real {format_horas_hhmmss(atual_max)}")
+    fig.add_hline(y=meta_horas, line_dash="dash", line_color="green", annotation_text=f"Meta")
+    fig.add_hline(y=limite_horas, line_dash="dash", line_color="red", annotation_text=f"Limite Legal")
     return fig
 
 def ganhos_financeiros(c, p_diesel, p_arla, p_pneu, v_pneu, c_manut, custo_he_equipe, custo_equipe_mensal, qtd_equipe, nova_rota_criada=False):
@@ -286,25 +267,28 @@ def ganhos_financeiros(c, p_diesel, p_arla, p_pneu, v_pneu, c_manut, custo_he_eq
         "total_mensal": total_mensal, "custo_nova_rota": custo_nova_rota, "lucro_liquido": lucro_liquido
     }
 
-jornada_meta, df_filtrado = upload_and_filter_page("Equalização Automática", "Motor Tetris: Otimização de Caçambas e Filtros de Turno/Frequência.")
+# --- EXECUÇÃO VISUAL STREAMLIT ---
+jornada_meta, df_filtrado = upload_and_filter_page(
+    "Inteligência Artificial: Equalização Automática",
+    "Algoritmo matemático de balanceamento contínuo de caçambas e jornada."
+)
+
 results = compute_dashboard_data(df_filtrado, jornada_meta=jornada_meta)
 rotas = results["rotas"].copy()
+
 if rotas.empty:
-    st.warning("Não há rotas disponíveis para análise.")
+    st.warning("Sem dados operacionais para esta seleção.")
     st.stop()
 
-# --- APLICANDO OS FILTROS OPERACIONAIS ---
-rotas["Setor"] = rotas["Setor"].astype(str).str.zfill(4)
-rotas["Turno"] = rotas["Setor"].map(MAPA_TURNOS).fillna("Desconhecido")
-rotas["Frequência"] = rotas["Setor"].map(MAPA_FREQUENCIA).fillna("Desconhecida")
+cidade_atual = st.session_state.get("global_cidade_ativa", "Trindade")
 
 st.sidebar.subheader("🔎 Filtros da Operação")
 filtro_turno = st.sidebar.selectbox("Filtrar por Turno", ["Todos", "Matutino", "Vespertino"])
 filtro_freq = st.sidebar.selectbox("Filtrar por Frequência", ["Todas", "Diária", "Seg/Qua/Sex", "Ter/Qui/Sab"])
 
-if filtro_turno != "Todos":
+if filtro_turno != "Todos" and "Turno" in rotas.columns:
     rotas = rotas[rotas["Turno"] == filtro_turno]
-if filtro_freq != "Todas":
+if filtro_freq != "Todas" and "Frequência" in rotas.columns:
     rotas = rotas[rotas["Frequência"] == filtro_freq]
 
 if rotas.empty:
@@ -356,6 +340,7 @@ base = preparar(rotas, tipo_map, cap_map)
 st.subheader(f"1. Base Atual da Operação ({filtro_turno} | {filtro_freq})")
 ex = base.copy()
 ex["Horas Atual"] = ex["Horas Atual (h)"].apply(format_horas_hhmmss)
+# 📍 CORREÇÃO: Alterado cirurgicamente de "Tom Atual" para "Ton Atual"
 ex["Eficiência Atual"] = ex.apply(lambda x: calcular_eficiencia(x["Ton Atual"], x["Viagens Atual"], x["Capacidade (t)"]), axis=1)
 st.dataframe(ex[["Setor", "Turno", "Frequência", "Tipo Caminhão", "Eficiência Atual", "Ton Atual", "Horas Atual", "Viagens Atual", "Km Atual"]], use_container_width=True, hide_index=True)
 

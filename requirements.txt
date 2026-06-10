@@ -6,3 +6,4 @@ numpy>=1.26
 reportlab>=4.0
 folium
 streamlit-folium
+google-generativeai

@@ -7,7 +7,7 @@ from kpis import format_horas_hhmmss
 st.set_page_config(page_title="Simulador Executivo", page_icon="🛠️", layout="wide")
 
 st.title("🛠️ Simulador Executivo (Manual)")
-st.caption("Suas regras ficam salvas na memória. Navegue pelo sistema e, quando pronto, envie o cenário para o Relatório.")
+st.caption("Suas regras ficam salvas na memória. Navegue pelo sistema, crie novas rotas manuais e envie o cenário para o Relatório.")
 
 # --- CONFIGURAÇÕES E DADOS ---
 if "epico_df" not in st.session_state:
@@ -44,24 +44,26 @@ def extrair_horas(hora_str):
         return h + (m / 60) + (s / 3600)
     except: return np.nan
 
-df_calc = df_filtrado.copy()
+def ordenar_setores_local(df_in):
+    ordem = pd.to_numeric(df_in["Setor"], errors="coerce").fillna(999999).astype(int)
+    return df_in.assign(_ord=ordem).sort_values("_ord").drop(columns="_ord").reset_index(drop=True)
 
-# Remove espaços ocultos nos nomes das colunas
+df_calc = df_filtrado.copy()
 df_calc.columns = df_calc.columns.str.strip()
 
 df_calc['Setor'] = pd.to_numeric(df_calc['Setor'], errors='coerce').fillna(0).astype(int).astype(str)
 df_calc['Horas_Dec'] = df_calc['Horas Trabalhadas'].apply(extrair_horas) if 'Horas Trabalhadas' in df_calc.columns else 7.33
 
-# Força a existência das colunas e extrai apenas os números (resolve o problema do Km zerado)
 colunas_numericas = ['Viagens', 'Km Total', 'Toneladas', 'Combustível', 'Km Improdutivo', 'Produtividade (t/h)']
+if 'Dist Garagem (km)' in df_calc.columns: colunas_numericas.append('Dist Garagem (km)')
+if 'Dist Aterro (km)' in df_calc.columns: colunas_numericas.append('Dist Aterro (km)')
+
 for col in colunas_numericas:
     if col not in df_calc.columns:
         df_calc[col] = 0.0
     else:
         if df_calc[col].dtype == 'object':
-            # Troca vírgula por ponto
             temp_col = df_calc[col].astype(str).str.replace(',', '.', regex=False)
-            # Extrai apenas a parte numérica (ignora letras como "km" ou espaços)
             temp_col = temp_col.str.extract(r'(\d+\.?\d*)')[0]
             df_calc[col] = temp_col
         df_calc[col] = pd.to_numeric(df_calc[col], errors='coerce').fillna(0.0)
@@ -71,7 +73,6 @@ df_jornada = df_calc.groupby('Setor').mean(numeric_only=True).reset_index()
 if df_jornada['Toneladas'].max() > 100:
     df_jornada['Toneladas'] = df_jornada['Toneladas'] / 1000
 
-# Renomeia o 'Km Total' para 'Km Atual' para padronizar a tabela
 df_jornada.rename(columns={
     'Horas_Dec': 'Horas Atual (h)', 'Km Total': 'Km Atual', 'Toneladas': 'Ton Atual',
     'Combustível': 'Combustível Atual', 'Viagens': 'Viagens Atual'
@@ -81,28 +82,75 @@ df_jornada['Horas Atual (h)'] = df_jornada['Horas Atual (h)'].round(2)
 df_jornada['Viagens Atual'] = np.ceil(df_jornada['Viagens Atual']) 
 df_jornada['Capacidade (t)'] = 9.5 
 
+# 📍 NOVO RECURSO: ADICIONAR E INJETAR NOVAS ROTAS MANUAIS NA BASE DE CÁLCULO
+if "rotas_manuais" not in st.session_state:
+    st.session_state["rotas_manuais"] = []
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("➕ Expansão Manual de Frota")
+with st.sidebar.expander("Adicionar Rota de Alívio", expanded=False):
+    try:
+        sugestao_codigo = str(int(pd.to_numeric(df_jornada["Setor"], errors="coerce").max()) + 1).zfill(4)
+    except:
+        sugestao_codigo = "0999"
+    
+    novo_setor_id = st.text_input("Código do Setor:", value=sugestao_codigo)
+    if st.button("Criar Rota Manual", use_container_width=True):
+        if novo_setor_id in df_jornada["Setor"].tolist() or novo_setor_id in [r["Setor"] for r in st.session_state["rotas_manuais"]]:
+            st.error("⚠️ Esse setor já existe!")
+        elif not novo_setor_id.strip():
+            st.error("⚠️ Insira um código válido.")
+        else:
+            nova_rota = {
+                "Setor": novo_setor_id.strip(),
+                "Horas Atual (h)": 0.0, "Km Atual": 0.0, "Ton Atual": 0.0,
+                "Combustível Atual": 0.0, "Viagens Atual": 0.0, "Km Produtivo": 0.0,
+                "Km Improdutivo": 0.0, "Capacidade (t)": 9.5,
+                "Dist Garagem (km)": df_jornada["Dist Garagem (km)"].mean() if "Dist Garagem (km)" in df_jornada.columns else 0.0,
+                "Dist Aterro (km)": df_jornada["Dist Aterro (km)"].mean() if "Dist Aterro (km)" in df_jornada.columns else 0.0
+            }
+            st.session_state["rotas_manuais"].append(nova_rota)
+            st.success(f"Rota {novo_setor_id} criada!")
+            st.rerun()
+
+    if st.session_state["rotas_manuais"]:
+        st.markdown("**Rotas Criadas:**")
+        for r_m in st.session_state["rotas_manuais"]:
+            st.caption(f"• Setor {r_m['Setor']} (Alívio)")
+        if st.button("🗑️ Limpar Criadas", type="secondary"):
+            st.session_state["rotas_manuais"] = []
+            st.rerun()
+
+# Acopla as rotas criadas na tabela ativa de simulação antes de exibir os balanços
+if st.session_state["rotas_manuais"]:
+    df_manuais_df = pd.DataFrame(st.session_state["rotas_manuais"])
+    df_jornada = pd.concat([df_jornada, df_manuais_df], ignore_index=True)
+    df_jornada = ordenar_setores_local(df_jornada)
+
 # --- BALANÇO DE NECESSIDADES ---
 st.markdown("---")
 st.subheader("📋 2. Balanço de Necessidades (Antes da Simulação)")
 
-media_frota = df_jornada['Horas Atual (h)'].mean()
-st.info(f"Média atual da frota: **{format_horas_hhmmss(media_frota)}** (Limite legal: 09:20:00)")
+# Calcula as médias desconsiderando as rotas de alívio que ainda estão zeradas
+df_linhas_reais = df_jornada[df_jornada['Horas Atual (h)'] > 0]
+media_frota = df_linhas_reais['Horas Atual (h)'].mean() if not df_linhas_reais.empty else 7.33
+st.info(f"Média atual da frota real: **{format_horas_hhmmss(media_frota)}** (Limite legal: 09:20:00)")
 
 df_balanco = df_jornada.copy()
-df_balanco['Desvio'] = df_balanco['Horas Atual (h)'] - media_frota
-df_balanco['Status'] = np.where(df_balanco['Desvio'] > 0.15, "🚩 Doador (Acima da Média)", 
-                       np.where(df_balanco['Desvio'] < -0.15, "✅ Recebedor (Abaixo da Média)", "🟢 Equilibrado"))
+df_balanco['Desvio'] = np.where(df_balanco['Horas Atual (h)'] > 0, df_balanco['Horas Atual (h)'] - media_frota, 0.0)
+df_balanco['Status'] = np.where(df_balanco['Horas Atual (h)'] == 0, "🆕 Rota de Alívio (Disponível)",
+                       np.where(df_balanco['Desvio'] > 0.15, "🚩 Doador (Acima da Média)", 
+                       np.where(df_balanco['Desvio'] < -0.15, "✅ Recebedor (Abaixo da Média)", "🟢 Equilibrado")))
 
 df_bal_view = df_balanco.copy()
 df_bal_view['Horas Atual'] = df_bal_view['Horas Atual (h)'].apply(format_horas_hhmmss)
-df_bal_view['Desvio da Média'] = df_bal_view['Desvio'].apply(lambda x: f"+{format_horas_hhmmss(abs(x))}" if x > 0 else f"-{format_horas_hhmmss(abs(x))}")
+df_bal_view['Desvio da Média'] = df_bal_view['Desvio'].apply(lambda x: f"+{format_horas_hhmmss(abs(x))}" if x > 0 else (f"-{format_horas_hhmmss(abs(x))}" if x < 0 else "-"))
 
 st.dataframe(df_bal_view[['Setor', 'Horas Atual', 'Status', 'Desvio da Média', 'Ton Atual', 'Km Atual']].style.format({
     "Ton Atual": "{:.2f} t", "Km Atual": "{:.1f} km"
-}).apply(lambda x: ['background-color: #ffcccc' if v == "🚩 Doador (Acima da Média)" else ('background-color: #e6ffe6' if v == "✅ Recebedor (Abaixo da Média)" else '') for v in x], axis=1, subset=['Status']), use_container_width=True, hide_index=True)
+}).apply(lambda x: ['background-color: #ffcccc' if v == "🚩 Doador (Acima da Média)" else ('background-color: #e6ffe6' if v == "✅ Recebedor (Abaixo da Média)" else ('background-color: #e6f2ff' if v == "🆕 Rota de Alívio (Disponível)" else '')) for v in x], axis=1, subset=['Status']), use_container_width=True, hide_index=True)
 
-
-# --- OTIMIZAÇÃO MANUAL (MÚLTIPLAS LINHAS COM MEMÓRIA) ---
+# --- OTIMIZAÇÃO MANUAL MÚLTIPLA ---
 st.markdown("---")
 st.subheader("⚙️ 3. Otimização Manual Múltipla (De -> Para)")
 
@@ -149,7 +197,7 @@ for i, regra in enumerate(st.session_state["regras_dinamicas"]):
         if d != r: transferencias_validas.append({"Doador": d, "Receptor": r, "Horas": h})
         else: st.error(f"⚠️ Linha {i+1}: Doador e Receptor não podem ser o mesmo setor.")
 
-# --- FÍSICA E CÁLCULOS ---
+# --- CÁLCULO FÍSICO LOGÍSTICO MULTI-CIDADES EXPANDIDO ---
 df_resultado = df_jornada.copy()
 df_resultado['Horas Simulada (h)'] = df_resultado['Horas Atual (h)']
 
@@ -158,28 +206,46 @@ if transferencias_validas:
         df_resultado.loc[df_resultado['Setor'] == t['Doador'], 'Horas Simulada (h)'] -= t['Horas']
         df_resultado.loc[df_resultado['Setor'] == t['Receptor'], 'Horas Simulada (h)'] += t['Horas']
 
+# Extração de coeficientes médios da operação real para calibração das rotas novas
+df_reais = df_resultado[df_resultado['Horas Atual (h)'] > 0]
+prod_media_frota = df_reais['Ton Atual'].sum() / df_reais['Horas Atual (h)'].sum() if not df_reais.empty else 1.2
+vel_prod_media_frota = df_reais['Km Produtivo'].sum() / df_reais['Horas Atual (h)'].sum() if not df_reais.empty else 4.5
+consumo_medio_frota = df_reais['Combustível Atual'].sum() / df_reais['Km Atual'].sum() if not df_reais.empty else 0.45
+
 df_resultado['Fator'] = np.where(df_resultado['Horas Atual (h)'] > 0, df_resultado['Horas Simulada (h)'] / df_resultado['Horas Atual (h)'], 1.0)
 
-df_resultado['Km Simulado'] = df_resultado['Km Atual'] * df_resultado['Fator']
-df_resultado['Toneladas Simulada'] = df_resultado['Ton Atual'] * df_resultado['Fator']
-df_resultado['Combustível Simulado'] = df_resultado['Combustível Atual'] * df_resultado['Fator']
-df_resultado['Km Improdutivo Simulado'] = df_resultado['Km Improdutivo'] * df_resultado['Fator']
+# Atribuição física: rotas existentes escalam linearmente; rotas novas calculam com base nas médias da frota
+df_resultado['Toneladas Simulada'] = np.where(df_resultado['Horas Atual (h)'] > 0, df_resultado['Ton Atual'] * df_resultado['Fator'], df_resultado['Horas Simulada (h)'] * prod_media_frota)
+df_resultado['Km Produtivo Simulado'] = np.where(df_resultado['Horas Atual (h)'] > 0, df_resultado['Km Produtivo'] * df_resultado['Fator'], df_resultado['Horas Simulada (h)'] * vel_prod_media_frota)
 
-df_resultado['Viagens Projetadas'] = np.where(
-    abs(df_resultado['Fator'] - 1.0) < 0.001, 
-    df_resultado['Viagens Atual'], 
-    np.maximum(1, np.ceil(df_resultado['Toneladas Simulada'] / df_resultado['Capacidade (t)']))
+df_resultado['Viagens Projetadas'] = np.where(df_resultado['Toneladas Simulada'] > 0, np.ceil(df_resultado['Toneladas Simulada'] / df_resultado['Capacidade (t)']), 0.0)
+
+# Mapeamento dinâmico de Km Improdutivo e Totais
+if 'Dist Garagem (km)' in df_resultado.columns and 'Dist Aterro (km)' in df_resultado.columns and df_resultado['Dist Garagem (km)'].sum() > 0:
+    df_resultado['Km Improdutivo Simulado'] = np.where(df_resultado['Viagens Projetadas'] > 0, df_resultado['Dist Garagem (km)'] + (df_resultado['Viagens Projetadas'] * df_resultado['Dist Aterro (km)'] * 2), 0.0)
+    df_resultado['Km Simulado'] = df_resultado['Km Produtivo Simulado'] + df_resultado['Km Improdutivo Simulado']
+else:
+    df_resultado['Km Improdutivo Simulado'] = np.where(df_resultado['Horas Atual (h)'] > 0, df_resultado['Km Improdutivo'] * df_resultado['Fator'], 0.0)
+    df_resultado['Km Simulado'] = np.where(df_resultado['Horas Atual (h)'] > 0, df_resultado['Km Atual'] * df_resultado['Fator'], df_resultado['Km Produtivo Simulado'])
+
+# Consumo de combustível simulado
+df_resultado['Combustível Simulado'] = np.where(
+    df_resultado['Horas Atual (h)'] > 0,
+    np.where(df_resultado['Km Atual'] > 0, (df_resultado['Km Simulado'] / df_resultado['Km Atual']) * df_resultado['Combustível Atual'], df_resultado['Combustível Atual'] * df_resultado['Fator']),
+    df_resultado['Km Simulado'] * consumo_medio_frota
 )
 
 df_resultado['Alteração (h)'] = df_resultado['Horas Simulada (h)'] - df_resultado['Horas Atual (h)']
-df_resultado['Papel Assumido'] = np.where(df_resultado['Alteração (h)'] < -0.01, "🔴 Doou", np.where(df_resultado['Alteração (h)'] > 0.01, "🟢 Recebeu", "⚪ Intacto"))
+df_resultado['Papel Assumido'] = np.where(df_resultado['Horas Atual (h)'] == 0, np.where(df_resultado['Horas Simulada (h)'] > 0, "🆕 Nova Rota Ativada", "⚪ Ociosa"),
+                                   np.where(df_resultado['Alteração (h)'] < -0.01, "🔴 Doou", 
+                                   np.where(df_resultado['Alteração (h)'] > 0.01, "🟢 Recebeu", "⚪ Intacto")))
 
-# --- RESULTADOS ---
+# --- GRAPH & VISUALS ---
 st.markdown("---")
 st.subheader("📊 4. Resultado do Impacto (Manual)")
 
 long_df = df_resultado[['Setor', 'Horas Atual (h)', 'Horas Simulada (h)']].melt(id_vars="Setor", var_name="Cenário", value_name="Horas")
-fig = px.bar(long_df, x="Setor", y="Horas", color="Cenário", barmode="group", color_discrete_map={"Horas Atual (h)": "#1f77b4", "Horas Simulada (h)": "#00cc96"})
+fig = px.bar(long_df, x="Setor", y="Horas", color="Cenário", barmode="group")
 fig.update_layout(xaxis=dict(type="category"), height=450)
 fig.add_hline(y=meta, line_dash="dash", line_color="green", annotation_text="Meta")
 fig.add_hline(y=media_frota, line_dash="dot", line_color="yellow", annotation_text="Média da Frota")
@@ -199,6 +265,11 @@ st.dataframe(df_view_final[cols_exibicao].style.format({
 st.markdown("---")
 st.info("💡 Suas regras estão salvas. Você pode olhar o Mapa Operacional e voltar. Quando finalizar a simulação, clique abaixo para oficializar o DRE e os Mapas.")
 if st.button("🚀 Confirmar e Enviar para o Relatório Executivo e Mapa", type="primary", use_container_width=True):
+    # Se uma nova rota recebeu horas, sinaliza para o DRE computar o custo de equipe adicional
+    if "🆕 Nova Rota Ativada" in df_resultado["Papel Assumido"].tolist():
+        st.session_state["epico_relatorio_origem"] = "Simulação Manual com Expansão de Frota"
+    else:
+        st.session_state["epico_relatorio_origem"] = "Simulação Manual Cirúrgica"
+        
     st.session_state["epico_relatorio_cenario"] = df_resultado.copy()
-    st.session_state["epico_relatorio_origem"] = "Simulação Manual Cirúrgica"
     st.success("✅ Cenário enviado com sucesso!")

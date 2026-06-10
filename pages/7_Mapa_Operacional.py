@@ -14,10 +14,22 @@ st.set_page_config(page_title="EPICO - Mapa Operacional", layout="wide")
 META_PADRAO = 7 + 20 / 60
 LIMITE_PADRAO = 9 + 20 / 60
 
+# --- COORDENADAS CENTRAIS DAS UNIDADES OPERACIONAIS ---
+CENTROS_CIDADES = {
+    "Anápolis": {"lat": -16.3267, "lon": -48.9528},
+    "Trindade": {"lat": -16.645, "lon": -49.495},
+    "Jataí": {"lat": -17.8814, "lon": -51.7144},
+    "Goiânia": {"lat": -16.6869, "lon": -49.2648}
+}
+
+# --- DETECÇÃO DINÂMICA DA CIDADE ATIVA ---
+cidade_selecionada = st.session_state.get("global_cidade_ativa", "Trindade")
+nome_slug = cidade_selecionada.lower().replace('í', 'i').replace('á', 'a').replace('ã', 'a')
+
 # --- INICIALIZAÇÃO DA PÁGINA ---
 jornada_meta, df_filtrado = upload_and_filter_page(
     "Mapa Operacional", 
-    "Visão geoespacial interativa de Trindade. Identifique os gargalos visualizando a cidade de cima."
+    f"Visão geoespacial interativa de {cidade_selecionada}. Identifique os gargalos visualizando a cidade de cima."
 )
 results = compute_dashboard_data(df_filtrado, jornada_meta=jornada_meta)
 rotas = results["rotas"].copy()
@@ -26,10 +38,12 @@ if rotas.empty:
     st.warning("Nenhum dado disponível após os filtros.")
     st.stop()
 
-# --- VERIFICAÇÃO DO GEOJSON ---
-geojson_path = "trindade_rotas.geojson"
+# --- VERIFICAÇÃO E CARGA DO GEOJSON DINÂMICO ---
+geojson_path = f"maps/base_{nome_slug}.geojson"
+
 if not os.path.exists(geojson_path):
-    st.error(f"⚠️ O arquivo de mapa '{geojson_path}' não foi encontrado na pasta. Por favor, certifique-se de que ele está salvo na mesma pasta do sistema.")
+    st.error(f"⚠️ O arquivo de mapa geográfico '{geojson_path}' não foi encontrado na pasta 'maps/'.")
+    st.info(f"Por favor, salve a malha de setores como 'base_{nome_slug}.geojson' na pasta 'maps/' para ativar esta tela.")
     st.stop()
 
 with open(geojson_path, "r", encoding="utf-8") as f:
@@ -70,7 +84,7 @@ df_mapa["Produtividade_Plot"] = df_mapa["Produtividade (t/h)"].fillna(0)
 st.subheader("1. Camadas de Inteligência Geoespacial")
 
 opcao_mapa = st.selectbox(
-    "Selecione o indicador que deseja pintar no mapa de Trindade:",
+    f"Selecione o indicador que deseja pintar no mapa de {cidade_selecionada}:",
     [
         "⏳ Mapa de Jornada (Horas de Trabalho)",
         "⛽ Mapa de Desperdício (Km Improdutivo)",
@@ -83,7 +97,7 @@ opcao_mapa = st.selectbox(
 if "⏳ Mapa de Jornada" in opcao_mapa:
     coluna_cor = "Horas_Plot"
     escala_cor = "RdYlGn_r" 
-    titulo_mapa = "Distribuição da Jornada de Trabalho (Meta Ideal: 07:20)"
+    titulo_mapa = f"Distribuição da Jornada de Trabalho em {cidade_selecionada} (Meta Ideal: 07:20)"
     ponto_medio = META_PADRAO
 elif "⛽ Mapa de Desperdício" in opcao_mapa:
     coluna_cor = "Km_Imp_Plot"
@@ -101,7 +115,10 @@ else:
     titulo_mapa = "Mapa de Velocidade de Coleta (Toneladas por Hora)"
     ponto_medio = df_mapa[coluna_cor].mean()
 
-# --- GERAÇÃO DO MAPA PLOTLY (AGORA COM TRANSPARÊNCIA AJUSTADA) ---
+# Busca as coordenadas de centro correspondentes à cidade ativa (Evita mapas perdidos no oceano)
+coordenadas_centro = CENTROS_CIDADES.get(cidade_selecionada, {"lat": -16.645, "lon": -49.495})
+
+# --- GERAÇÃO DO MAPA PLOTLY CHOROPLETH MAPBOX ---
 fig = px.choropleth_mapbox(
     df_mapa,
     geojson=geojson_data,
@@ -111,9 +128,9 @@ fig = px.choropleth_mapbox(
     color_continuous_scale=escala_cor,
     color_continuous_midpoint=ponto_medio,
     mapbox_style="carto-positron",
-    zoom=12, # Dei um pouco mais de zoom para a cidade preencher a tela larga
-    center={"lat": -16.645, "lon": -49.495}, 
-    opacity=0.35, # TRANSPARÊNCIA AJUSTADA (35% visível, 65% transparente)
+    zoom=12, 
+    center=coordenadas_centro, 
+    opacity=0.35, # Transparência para enxergar o mapa de fundo (ruas)
     hover_name="Setor",
     hover_data={
         "Setor": False,
@@ -134,14 +151,14 @@ fig = px.choropleth_mapbox(
 fig.update_layout(
     title=titulo_mapa,
     margin={"r": 0, "t": 40, "l": 0, "b": 0},
-    height=700 # Altura aumentada para aproveitar a tela Wide
+    height=700 
 )
 
 st.plotly_chart(fig, use_container_width=True)
 
-st.markdown("""
+st.markdown(f"""
 **💡 Dica de Navegação:** Você pode dar zoom usando a roda do mouse e clicar/segurar para arrastar a cidade. 
-Passe o mouse por cima de qualquer setor colorido (ex: Setor 2001, 3004) para ver os dados vitais instantâneos dessa equipe operando na rua.
+Passe o mouse por cima de qualquer setor colorido de {cidade_selecionada} para ver os dados vitais instantâneos dessa equipe operando na rua.
 """)
 
 st.markdown("---")

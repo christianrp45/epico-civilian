@@ -1,190 +1,134 @@
-import pandas as pd
 import streamlit as st
-import plotly.express as px
+import pandas as pd
+import os
+
+# 🛡️ AIRBAG DE IMPORTAÇÃO: Impede que a falta do pacote quebre as outras páginas do ÉPICO
+try:
+    import google.generativeai as genai
+    HAS_GENAI = True
+except ImportError:
+    HAS_GENAI = False
 
 from helpers import upload_and_filter_page
 from kpis import compute_dashboard_data, format_horas_hhmmss, format_number_br
 
-# --- CONFIGURAÇÕES PADRÃO ---
-META_PADRAO = 7 + 20 / 60
+# Força o layout em tela larga (Padrão Quebec/Ecolabs)
+st.set_page_config(page_title="ÉPICO - Co-Piloto IA", layout="wide")
 
-# --- CÉREBRO FINANCEIRO (OPEX) ---
-def calcular_custo_oculto(df, meta_horas, p_diesel, p_arla, p_pneu, v_pneu, c_manut, custo_he):
-    df_calc = df.copy()
-    
-    # Calcula L/Km para descobrir quanto o Km Improdutivo queima de Diesel
-    df_calc["L_por_km_real"] = (df_calc["Combustível"] / df_calc["Km Total"].replace(0, 1)).replace([float("inf"), -float("inf")], 0).fillna(0)
-    
-    # 1. Custo do Tempo Perdido (Horas Trabalhadas acima da Meta)
-    df_calc["Horas_Excesso"] = (df_calc["Horas Trabalhadas"] - meta_horas).clip(lower=0)
-    total_horas_excesso = df_calc["Horas_Excesso"].sum()
-    custo_total_he = total_horas_excesso * custo_he
-    
-    # 2. Custo do Deslocamento Improdutivo (Km Improdutivo)
-    total_km_improdutivo = df_calc["Km Improdutivo"].sum()
-    litros_desperdiciados = (df_calc["Km Improdutivo"] * df_calc["L_por_km_real"]).sum()
-    
-    custo_diesel_imp = litros_desperdiciados * p_diesel
-    custo_arla_imp = (litros_desperdiciados * 0.05) * p_arla
-    custo_pneu_imp = total_km_improdutivo * (p_pneu / max(v_pneu, 1))
-    custo_manut_imp = total_km_improdutivo * c_manut
-    
-    custo_frota_improdutiva = custo_diesel_imp + custo_arla_imp + custo_pneu_imp + custo_manut_imp
-    
-    custo_total_diario = custo_total_he + custo_frota_improdutiva
-    custo_total_mensal = custo_total_diario * 26 # 26 dias úteis
-    
-    return {
-        "horas_perdidas": total_horas_excesso,
-        "km_perdidos": total_km_improdutivo,
-        "litros_perdidos": litros_desperdiciados,
-        "custo_he_diario": custo_total_he,
-        "custo_frota_diario": custo_frota_improdutiva,
-        "custo_total_mensal": custo_total_mensal
-    }
+st.title("🤖 Co-Piloto Inteligente ÉPICO")
+st.caption("Consultoria analítica prescritiva em tempo real alimentada pelo Google Gemini. Transforme dados brutos em decisões C-Level.")
 
-# --- INÍCIO DA PÁGINA ---
+# --- VALIDAÇÃO DO AMBIENTE VIRTUAL ---
+if not HAS_GENAI:
+    st.error("⚠️ **O módulo 'google-generativeai' não foi encontrado no seu ambiente Python (.venv)!**")
+    st.markdown("""
+    Para corrigir isso e ativar o Co-Piloto de IA sem erros, feche o sistema e execute o comando abaixo no terminal do seu VS Code:
+    ```bash
+    .\\.venv\\Scripts\\pip install google-generativeai
+    ```
+    *Após a barra de instalação verde concluir com sucesso, execute o seu `iniciar_epico.bat` novamente.*
+    """)
+    st.stop()
+
+# 1. Inicializa os filtros e os dados da cidade ativa (Híbrido)
 jornada_meta, df_filtrado = upload_and_filter_page(
-    "Visão Executiva",
-    "Diagnóstico financeiro e operacional da situação atual (Custo Oculto da Ineficiência)."
+    "Análise Prescritiva de IA", 
+    "O cérebro de Inteligência Artificial examinando os gargalos invisíveis da sua frota."
 )
 
 results = compute_dashboard_data(df_filtrado, jornada_meta=jornada_meta)
 rotas = results["rotas"].copy()
 
 if rotas.empty:
-    st.warning("Nenhum dado disponível após os filtros.")
+    st.warning("⚠️ Nenhum dado operacional disponível com os filtros selecionados.")
     st.stop()
 
-# Garantir conversões numéricas
-nums = ["Toneladas", "Viagens", "Km Produtivo", "Km Improdutivo", "Km Total", "Combustível", "Horas Trabalhadas", "Produtividade (t/h)"]
-for c in nums:
-    if c in rotas.columns:
-        rotas[c] = pd.to_numeric(rotas[c], errors="coerce").fillna(0)
+# 2. Configuração e Autenticação da API Key do Gemini via Sidebar
+st.sidebar.markdown("---")
+st.sidebar.subheader("🔑 Autenticação do Ecossistema")
+api_key_input = st.sidebar.text_input(
+    "Insira sua Gemini API Key:", 
+    type="password", 
+    value=st.session_state.get("gemini_api_key", ""),
+    help="Sua chave fica segura apenas na sessão atual do seu navegador."
+)
 
-# --- MENU LATERAL DE OPEX (COM SINCRONIZAÇÃO DE MEMÓRIA) ---
-st.sidebar.subheader("🎯 Metas Operacionais")
-meta_operacional = st.sidebar.number_input("Meta ideal de jornada (h)", min_value=1.0, max_value=24.0, value=float(st.session_state.get("meta_operacional", META_PADRAO)), step=0.01)
-
-st.sidebar.subheader("⚙️ Parâmetros Operacionais (Frota)")
-preco_diesel = st.sidebar.number_input("Preço Diesel (R$/L)", min_value=0.0, value=float(st.session_state.get("preco_diesel", 6.23)), step=0.10)
-preco_arla = st.sidebar.number_input("Preço ARLA 32 (R$/L)", min_value=0.0, value=float(st.session_state.get("preco_arla", 3.50)), step=0.10)
-custo_pneu = st.sidebar.number_input("Custo Jogo Pneus (R$)", min_value=0.0, value=float(st.session_state.get("custo_pneu", 1500.0)), step=100.0)
-vida_pneu = st.sidebar.number_input("Vida Útil Pneu (Km)", min_value=1, value=int(st.session_state.get("vida_pneu", 40000)), step=1000)
-custo_manut = st.sidebar.number_input("Custo Manutenção (R$/Km)", min_value=0.0, value=float(st.session_state.get("custo_manut", 0.85)), step=0.05)
-
-with st.sidebar.expander("👷 Parâmetros de Mão de Obra (Mensal)", expanded=False):
-    st.markdown("**Composição da Equipe**")
-    qtd_coletores = st.number_input("Qtd Coletores por Caminhão", min_value=1, value=int(st.session_state.get("qtd_coletores", 3)), step=1)
-    pct_hora_extra = st.number_input("Adicional de H.E. (%)", min_value=0.0, value=float(st.session_state.get("pct_hora_extra", 50.0)), step=5.0)
-
-    st.markdown("**Custos Motorista (R$)**")
-    mot_salario = st.number_input("Salário Base (Mot.)", value=float(st.session_state.get("mot_salario", 2741.61)))
-    mot_insalub = st.number_input("Insalubridade (Mot.)", value=float(st.session_state.get("mot_insalub", 1096.64)))
-    mot_encargos = st.number_input("Encargos Trabalhistas (Mot.)", value=float(st.session_state.get("mot_encargos", 651.48)))
-    mot_va = st.number_input("Vale Alimentação (Mot.)", value=float(st.session_state.get("mot_va", 708.50)))
-
-    st.markdown("**Custos Coletor (R$)**")
-    col_salario = st.number_input("Salário Base (Col.)", value=float(st.session_state.get("col_salario", 2053.20)))
-    col_insalub = st.number_input("Insalubridade (Col.)", value=float(st.session_state.get("col_insalub", 821.28)))
-    col_encargos = st.number_input("Encargos Trabalhistas (Col.)", value=float(st.session_state.get("col_encargos", 602.04)))
-    col_va = st.number_input("Vale Alimentação (Col.)", value=float(st.session_state.get("col_va", 708.50)))
-
-# Salva os valores na memória para que a Página Automática consiga ler os mesmos dados
-st.session_state.update({
-    "meta_operacional": meta_operacional, "preco_diesel": preco_diesel, "preco_arla": preco_arla,
-    "custo_pneu": custo_pneu, "vida_pneu": vida_pneu, "custo_manut": custo_manut,
-    "qtd_coletores": qtd_coletores, "pct_hora_extra": pct_hora_extra,
-    "mot_salario": mot_salario, "mot_insalub": mot_insalub, "mot_encargos": mot_encargos, "mot_va": mot_va,
-    "col_salario": col_salario, "col_insalub": col_insalub, "col_encargos": col_encargos, "col_va": col_va
-})
-
-# Calcula o custo da Hora Extra Real (Apenas Salário Base / 220)
-mot_hora_normal = mot_salario / 220.0
-col_hora_normal = col_salario / 220.0
-fator_he = 1 + (pct_hora_extra / 100.0)
-custo_he_equipe = (mot_hora_normal * fator_he) + ((col_hora_normal * fator_he) * qtd_coletores)
-
-# --- CORPO DA PÁGINA ---
-st.subheader("1. Indicadores Globais de Produção")
-
-total_toneladas_calc = rotas["Toneladas"].sum()
-total_viagens_calc = int(rotas["Viagens"].sum())
-total_km_calc = rotas["Km Total"].sum()
-total_combustivel_calc = rotas["Combustível"].sum()
-
-ton_viagem_media = total_toneladas_calc / max(total_viagens_calc, 1)
-km_improdutivo_pct = rotas["Km Improdutivo"].sum() / max(total_km_calc, 1)
-km_por_litro = total_km_calc / max(total_combustivel_calc, 1)
-horas_extras_totais = rotas["Horas Trabalhadas"].apply(lambda x: max(0, x - meta_operacional)).sum()
-
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("Total Toneladas", format_number_br(total_toneladas_calc, 2))
-c2.metric("Total Viagens", total_viagens_calc)
-c3.metric("Km Total Percorrido", format_number_br(total_km_calc, 2))
-c4.metric("Consumo Diesel (L)", format_number_br(total_combustivel_calc, 2))
-
-c5, c6, c7, c8 = st.columns(4)
-c5.metric("Ton / Viagem Média", format_number_br(ton_viagem_media, 2))
-c6.metric("Horas Extras (Total/Dia)", format_horas_hhmmss(horas_extras_totais))
-c7.metric("% Km Improdutivo", f"{km_improdutivo_pct:.1%}")
-c8.metric("Média Km/L", format_number_br(km_por_litro, 2))
-
-st.markdown("---")
-
-# --- PAINEL DE ALERTA FINANCEIRO (O CHOQUE PARA O CFO) ---
-st.subheader("🚨 Termômetro Financeiro: O Custo da Ineficiência Atual")
-st.markdown("Cálculo estimado do vazamento de caixa gerado por **Horas Extras** (acima da meta ideal) e **Km Improdutivo** (viagens de deslocamento sem coleta).")
-
-sangramento = calcular_custo_oculto(rotas, meta_operacional, preco_diesel, preco_arla, custo_pneu, vida_pneu, custo_manut, custo_he_equipe)
-
-f1, f2, f3 = st.columns(3)
-f1.metric("Passivo Trab. (Horas Extras/Dia)", f"R$ {format_number_br(sangramento['custo_he_diario'], 2)}", f"-{format_horas_hhmmss(sangramento['horas_perdidas'])} horas estouradas", delta_color="inverse")
-f2.metric("Desperdício de Frota (Km Imp./Dia)", f"R$ {format_number_br(sangramento['custo_frota_diario'], 2)}", f"-{format_number_br(sangramento['km_perdidos'], 1)} km vazios", delta_color="inverse")
-f3.metric("Custo Oculto Total (Mensalizado)", f"R$ {format_number_br(sangramento['custo_total_mensal'], 2)}", "DRE Mensal Estimado", delta_color="inverse")
-
-if sangramento['custo_total_mensal'] > 0:
-    st.error(f"**Atenção Diretoria:** A operação atual possui um 'Custo Oculto' de aproximadamente **R$ {format_number_br(sangramento['custo_total_mensal'], 2)} por mês**. Utilize os Simuladores de Equalização para encontrar o Ponto de Equilíbrio e recuperar esse capital.")
+if api_key_input.strip():
+    st.session_state["gemini_api_key"] = api_key_input.strip()
+    genai.configure(api_key=api_key_input.strip())
 else:
-    st.success("Operação extremamente enxuta. Sem custos de ociosidade detectados.")
+    st.warning("⚠️ Por favor, insira a sua Gemini API Key na barra lateral para ativar os recursos de Inteligência Artificial.")
+    st.stop()
 
-st.markdown("---")
+# 3. Engenharia de Dados: Sumarização de Alta Performance para o Prompt
+cidade_atual = st.session_state.get("global_cidade_ativa", "Trindade")
+kpis_globais = results["kpis"]
+medias_globais = results["medias"]
 
-# --- GRÁFICOS DE DIAGNÓSTICO ---
-st.subheader("2. Raio-X por Setor (Onde estão os gargalos?)")
+# Isola os top setores mais críticos em estouro de relógio e km vazio
+top_horas = rotas.sort_values(by="Horas Trabalhadas", ascending=False).head(4)
+top_desperdicio = rotas.sort_values(by="Km Improdutivo", ascending=False).head(4)
 
-rotas_grafico = rotas.copy()
-rotas_grafico["Setor"] = rotas_grafico["Setor"].astype(str)
+# Monta o raio-x de dados em texto estruturado para a IA ler sem ruídos
+resumo_operacional_ia = f"""
+--- BASELINE GLOBAL DA OPERAÇÃO EM {cidade_atual.upper()} ---
+- Total de Toneladas Geradas: {kpis_globais['toneladas_total']:.2f} t/dia
+- Quilometragem Total Percorrida: {kpis_globais['km_total']:.1f} km/dia
+- Consumo Total de Combustível: {kpis_globais['combustivel_total']:.1f} Litros/dia
+- Média de Jornada da Frota: {format_horas_hhmmss(medias_globais['media_horas'])} por equipe/dia
+- Total de Horas Extras Pagas/Dia: {format_horas_hhmmss(kpis_globais['horas_extras_total'])}
+- Percentual de Rodagem Vazia (Km Improdutivo): {kpis_globais['km_improdutivo_pct_total']:.1%}
 
-g1, g2 = st.columns(2)
-with g1:
-    fig_prod = px.bar(
-        rotas_grafico.sort_values("Produtividade (t/h)", ascending=False), 
-        x="Setor", y="Produtividade (t/h)", 
-        title="Produtividade Efetiva (t/h)",
-        color="Produtividade (t/h)", color_continuous_scale="Viridis"
-    )
-    media_produtividade_calc = rotas_grafico["Produtividade (t/h)"].replace([float("inf"), -float("inf")], pd.NA).dropna().mean()
-    if pd.isna(media_produtividade_calc): media_produtividade_calc = 0
-    fig_prod.add_hline(y=media_produtividade_calc, line_dash="dash", line_color="red", annotation_text="Média Global")
-    fig_prod.update_xaxes(type="category")
-    st.plotly_chart(fig_prod, use_container_width=True)
+--- MAIORES ESTOUROS DE JORNADA TRABALHISTA (ZONA DE RISCO) ---
+"""
+for _, row in top_horas.iterrows():
+    resumo_operacional_ia += f"- Setor {row['Setor']}: Jornada de {format_horas_hhmmss(row['Horas Trabalhadas'])}, Peso Coletado: {row['Toneladas']:.2f}t, Viagens: {row['Viagens']:.1f}\n"
 
-with g2:
-    fig_km = px.bar(
-        rotas_grafico.sort_values("Km Improdutivo", ascending=False), 
-        x="Setor", y="Km Improdutivo", 
-        title="Desperdício: Km Improdutivo por Setor",
-        color="Km Improdutivo", color_continuous_scale="Reds"
-    )
-    fig_km.update_xaxes(type="category")
-    st.plotly_chart(fig_km, use_container_width=True)
+resumo_operacional_ia += "\n--- MAIORES DESPERDÍCIOS DE QUILOMETRAGEM (SANGRAMENTO DE OPEX) ---\n"
+for _, row in top_desperdicio.iterrows():
+    resumo_operacional_ia += f"- Setor {row['Setor']}: Desperdício de {row['Km Improdutivo']:.1f} km vazios, Produtividade Efetiva: {row['Produtividade (t/h)']:.2f} t/h\n"
 
-st.subheader("3. Detalhamento Técnico")
-tabela_view = rotas.copy()
-tabela_view["Horas Trabalhadas"] = tabela_view["Horas Trabalhadas"].apply(format_horas_hhmmss)
-for col in ["Toneladas", "Km Total", "Km Produtivo", "Km Improdutivo", "Combustível", "Produtividade (t/h)"]:
-    tabela_view[col] = tabela_view[col].apply(lambda x: format_number_br(x, 2))
+# 4. Painel de Comando e Disparo da IA
+st.markdown("### 📋 Solicitar Auditoria da Inteligência Artificial")
+st.info("O cérebro analítico do Gemini vai cruzar a sua volumetria de balança com a rodagem dos caminhões para prescrever a melhor estratégia C-Level.")
 
-cols = ["Setor", "Toneladas", "Viagens", "Horas Trabalhadas", "Km Total", "Km Improdutivo", "Combustível", "Produtividade (t/h)"]
-st.dataframe(tabela_view[cols], use_container_width=True, hide_index=True)
+if st.button("🚀 Executar Consultoria Logística Avançada", type="primary", use_container_width=True):
+    with st.spinner(f"O Gemini está auditando a física operacional de {cidade_atual}... Aguarde."):
+        try:
+            # Aciona o modelo estável do Gemini Pro
+            model = genai.GenerativeModel('gemini-1.5-pro')
+            
+            prompt_corporativo = f"""
+            Você é o Diretor Técnico Interino de Otimização e Logística da Ecolabs. Sua responsabilidade é analisar o relatório de telemetria e balança enviado pela equipe de engenharia e emitir um parecer estratégico para a Quebec Asset e a Diretoria Executiva.
+
+            Dados Reais Extraídos do Sistema para a Cidade de {cidade_atual}:
+            {resumo_operacional_ia}
+
+            Regras de Negócio e Premissas da Ecolabs:
+            1. A jornada padrão em contrato é de 07:20:00 (7.33h decimais). Qualquer minuto acima é passivo de Hora Extra.
+            2. O limite de tolerância de segurança é 09:20:00 (9.33h decimais). Acima disso configura risco grave de fadiga e passivos trabalhistas.
+            3. A capacidade limite de escoamento de um caminhão compactador Toco é de 9.5 toneladas por viagem.
+
+            Por favor, redija o seu parecer técnico estruturado rigorosamente nas seguintes seções:
+            1. **DIAGNÓSTICO CRÍTICO DA OPERAÇÃO**: Analise o baseline global da cidade. Aponte quais setores estão "sangrando o caixa" com horas extras abusivas ou rodando quilometragem vazia desnecessária (bater lata).
+            2. **PLANO DE REMANEJAMENTO CIRÚRGICO**: Olhando os dados dos setores, prescreva ações de "De -> Para" exatas para equilibrar a jornada dos motoristas e coletores usando os simuladores manuais (indique quais setores devem doar tempo/carga e quais devem receber).
+            3. **PARECER E DIRETRIZ FINANCEIRA**: Emita a decisão final. A frota atual consegue absorver o volume se for equalizada, ou a diretoria deve aprovar imediatamente o orçamento para o botão de 'Nova Rota de Alívio' por saturação da capacidade física?
+
+            Mantenha um tom altamente profissional, corporativo, focado em retorno sobre o investimento (ROI) e redução de despesas operacionais (OPEX). Não cite variáveis de código, fale como um diretor de operações.
+            """
+            
+            response = model.generate_content(prompt_corporativo)
+            
+            # Armazena o texto na sessão para que o relatório (Página 6) consiga resgatar
+            st.session_state["epico_parecer_ia_salvo"] = response.text
+            st.session_state["epico_parecer_ia_cidade"] = cidade_atual
+            
+            st.markdown("---")
+            st.subheader("💡 Parecer Técnico e Diretrizes Prescritivas da IA")
+            st.markdown(response.text)
+            
+            st.success("✅ **Integração Concluída:** O parecer da Inteligência Artificial foi sincronizado com sucesso na memória global do sistema e está disponível para inclusão no Relatório Executivo!")
+            
+        except Exception as e:
+            st.error(f"Falha na comunicação com a API do Gemini: {e}")
+            st.info("Verifique se a sua chave de API está ativa e possui créditos de uso.")
