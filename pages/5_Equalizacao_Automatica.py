@@ -4,34 +4,22 @@ import streamlit as st
 import plotly.express as px
 from helpers import upload_and_filter_page
 from kpis import compute_dashboard_data, format_horas_hhmmss, format_number_br
+from config_loader import (
+    get_distancias_aterro, get_mapa_turnos, get_mapa_frequencia,
+    get_capacidades_caminhoes, get_operacional,
+)
 
-LIMITE_HORAS_PADRAO = 9 + 20 / 60
-META_PADRAO = 7 + 20 / 60
-CAP_BASE_TOCO = 9.5
-CAPACIDADES = {"Toco": 9.5, "Trucado": 13.5}
 
-DISTANCIAS_ATERRO = {
-    "2000": 2.43, "2001": 4.90, "2002": 5.02, "2003": 11.13, "2004": 12.30,
-    "3000": 4.14, "3001": 2.10, "3002": 9.00, "3003": 15.39, "3004": 13.70,
-    "3005": 4.78, "4001": 2.81, "4002": 3.56, "4003": 12.15, "4004": 14.58,
-    "5001": 3.40, "5002": 5.24, "5003": 14.76, "5004": 13.96, "5005": 7.38
-}
-VELOCIDADE_MEDIA_ATERRO = 20.0
+LIMITE_HORAS_PADRAO = get_operacional("limite_horas", 9 + 20 / 60)
+META_PADRAO         = get_operacional("meta_horas",   7 + 20 / 60)
+VELOCIDADE_MEDIA_ATERRO = get_operacional("velocidade_media_aterro_kmh", 20.0)
 
-# --- MAPEAMENTO OPERACIONAL (DNA DE TRINDADE) ---
-MAPA_TURNOS = {
-    "2000": "Matutino", "2001": "Matutino", "2002": "Matutino", "2003": "Matutino", "2004": "Matutino",
-    "3000": "Matutino", "3001": "Vespertino", "3002": "Vespertino", "3003": "Vespertino", "3004": "Vespertino", "3005": "Vespertino",
-    "4001": "Matutino", "4002": "Matutino", "4003": "Matutino", "4004": "Matutino",
-    "5001": "Vespertino", "5002": "Vespertino", "5003": "Vespertino", "5004": "Vespertino", "5005": "Vespertino"
-}
-MAPA_FREQUENCIA = {
-    "2000": "Diária", "3000": "Diária",
-    "2001": "Seg/Qua/Sex", "2002": "Seg/Qua/Sex", "2003": "Seg/Qua/Sex", "2004": "Seg/Qua/Sex",
-    "3001": "Seg/Qua/Sex", "3002": "Seg/Qua/Sex", "3003": "Seg/Qua/Sex", "3004": "Seg/Qua/Sex", "3005": "Seg/Qua/Sex",
-    "4001": "Ter/Qui/Sab", "4002": "Ter/Qui/Sab", "4003": "Ter/Qui/Sab", "4004": "Ter/Qui/Sab",
-    "5001": "Ter/Qui/Sab", "5002": "Ter/Qui/Sab", "5003": "Ter/Qui/Sab", "5004": "Ter/Qui/Sab", "5005": "Ter/Qui/Sab"
-}
+CAPACIDADES           = get_capacidades_caminhoes()
+CAP_BASE_TOCO         = CAPACIDADES.get("Toco", 9.5)
+DISTANCIAS_ATERRO     = get_distancias_aterro()
+MAPA_TURNOS           = get_mapa_turnos()
+MAPA_FREQUENCIA       = get_mapa_frequencia()
+OVERHEAD_POR_VIAGEM_H = get_operacional("overhead_por_viagem_h", 0.5)
 
 def ceil_viagens(toneladas, capacidade):
     if pd.isna(toneladas) or pd.isna(capacidade) or capacidade <= 0: return 0
@@ -95,8 +83,8 @@ def recomputar_fisica(df):
         km_extra_aterro = delta_v * (dist_ida * 2)
         km_imp = max(0.0, float(row["Km Improdutivo"]) + km_extra_aterro)
         hr_extra = 0.0
-        if delta_v > 0: hr_extra = (km_extra_aterro / VELOCIDADE_MEDIA_ATERRO) + (delta_v * 0.5)
-        elif delta_v < 0: hr_extra = -((abs(km_extra_aterro) / VELOCIDADE_MEDIA_ATERRO) + (abs(delta_v) * 0.5))
+        if delta_v > 0: hr_extra = (km_extra_aterro / VELOCIDADE_MEDIA_ATERRO) + (delta_v * OVERHEAD_POR_VIAGEM_H)
+        elif delta_v < 0: hr_extra = -((abs(km_extra_aterro) / VELOCIDADE_MEDIA_ATERRO) + (abs(delta_v) * OVERHEAD_POR_VIAGEM_H))
         hr_imp = max(0.0, float(row["Horas Improdutivas"]) + hr_extra)
         novo_km_imp.append(km_imp)
         nova_hr_imp.append(hr_imp)
@@ -113,13 +101,20 @@ def equalizar_inteligente(df, alvo_horas=None, nome="Base"):
     plano_raw = []
     if not alvo_horas: alvo_horas = float(sim["Horas Simulada (h)"].sum()) / max(len(sim), 1)
 
+    prev_excesso = float("inf")
     for passo in range(1500):
         sim = recomputar_fisica(sim)
-        
+
         doadores = sim[sim["Horas Simulada (h)"] > alvo_horas + (1/60)].sort_values("Horas Simulada (h)", ascending=False)
         receptores = sim[sim["Horas Simulada (h)"] < alvo_horas - (1/60)].copy()
-        
+
         if doadores.empty or receptores.empty: break
+
+        # Convergência: para se o excesso total não melhorar mais que 0,1 segundo
+        excesso_atual = float((doadores["Horas Simulada (h)"] - alvo_horas).sum())
+        if abs(prev_excesso - excesso_atual) < (1 / 3600):
+            break
+        prev_excesso = excesso_atual
         
         # 1. Efeito Esponja: Ordena receptores priorizando caminhões Trucados (Gigantes primeiro)
         receptores["_is_trucado"] = receptores["Tipo Caminhão"] == "Trucado"

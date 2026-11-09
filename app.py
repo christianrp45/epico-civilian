@@ -1,7 +1,11 @@
 import os
+import uuid
 import streamlit as st
 from limpador_inlog import processar_inlog
 from kpis import load_dataset, get_filter_options
+
+MAX_UPLOAD_MB = 50
+EXTENSOES_VALIDAS = {"csv", "xls", "xlsx"}
 
 st.set_page_config(page_title="EPICO Platform", page_icon="🚛", layout="wide")
 
@@ -16,19 +20,23 @@ with st.sidebar:
     ficheiro_inlog = st.file_uploader("1. Carregar Inlog Bruto (CSV, XLS, XLSX)", type=['csv', 'xls', 'xlsx'], key="upload_inlog_bruto")
 
     if ficheiro_inlog is not None:
-        if st.button("🚀 Processar Dados Brutos", use_container_width=True):
+        extensao = ficheiro_inlog.name.rsplit(".", 1)[-1].lower()
+        tamanho_mb = len(ficheiro_inlog.getvalue()) / (1024 * 1024)
+
+        if extensao not in EXTENSOES_VALIDAS:
+            st.error(f"Formato não suportado: .{extensao}. Use CSV, XLS ou XLSX.")
+        elif tamanho_mb > MAX_UPLOAD_MB:
+            st.error(f"Arquivo muito grande ({tamanho_mb:.1f} MB). Limite: {MAX_UPLOAD_MB} MB.")
+        elif st.button("🚀 Processar Dados Brutos", use_container_width=True):
             with st.spinner("A aplicar algoritmos de limpeza e inteligência..."):
                 try:
-                    # 2. MUDANÇA: Descobre a extensão do arquivo enviado para salvar corretamente
-                    extensao = ficheiro_inlog.name.split('.')[-1].lower()
-                    arquivo_temp = f"temp_inlog.{extensao}"
-                    
+                    arquivo_temp = f"temp_inlog_{uuid.uuid4().hex}.{extensao}"
+
                     with open(arquivo_temp, "wb") as f:
                         f.write(ficheiro_inlog.getbuffer())
-                    
-                    # 3. MUDANÇA: Envia o arquivo com a extensão certa para o robô
+
                     processar_inlog(arquivo_temp, "dados_coleta.xlsx")
-                    
+
                     os.remove(arquivo_temp)
                     
                     st.success("✅ Padrão Ouro gerado com sucesso!")

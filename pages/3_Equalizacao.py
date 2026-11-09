@@ -33,7 +33,10 @@ rotas["Setor"] = pd.to_numeric(rotas["Setor"], errors="coerce").fillna(0).astype
 
 # Forçar numéricos nas colunas principais para evitar erros
 for col in ["Toneladas", "Km Total", "Produtividade (t/h)", "Horas Trabalhadas"]:
-    rotas[col] = pd.to_numeric(rotas.get(col, 0), errors="coerce").fillna(0)
+    if col in rotas.columns:
+        rotas[col] = pd.to_numeric(rotas[col], errors="coerce").fillna(0)
+    else:
+        rotas[col] = 0.0
 
 # 2. Correção Automática de Kg para Toneladas
 if rotas["Toneladas"].max() > 100:

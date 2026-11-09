@@ -17,10 +17,14 @@ LIMITE_HORAS_PADRAO = 9 + 20 / 60
 FATOR_CO2_DIESEL = 2.64  
 
 styles = getSampleStyleSheet()
-styles.add(ParagraphStyle(name="EPTitle", fontSize=18, leading=22, textColor=colors.HexColor("#123B6D")))
-styles.add(ParagraphStyle(name="EPSub", fontSize=12, leading=15, textColor=colors.HexColor("#2E5C99")))
-styles.add(ParagraphStyle(name="EPAlert", fontSize=10, leading=14, textColor=colors.darkred, fontName="Helvetica-Bold"))
-styles.add(ParagraphStyle(name="EPSuccess", fontSize=10, leading=14, textColor=colors.green, fontName="Helvetica-Bold"))
+for _name, _kwargs in [
+    ("EPTitle",   dict(fontSize=18, leading=22, textColor=colors.HexColor("#123B6D"))),
+    ("EPSub",     dict(fontSize=12, leading=15, textColor=colors.HexColor("#2E5C99"))),
+    ("EPAlert",   dict(fontSize=10, leading=14, textColor=colors.darkred, fontName="Helvetica-Bold")),
+    ("EPSuccess", dict(fontSize=10, leading=14, textColor=colors.green,   fontName="Helvetica-Bold")),
+]:
+    if _name not in styles:
+        styles.add(ParagraphStyle(name=_name, **_kwargs))
 
 def ordenar_setores(df):
     ordem = pd.to_numeric(df["Setor"], errors="coerce").fillna(999999).astype(int)

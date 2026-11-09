@@ -50,7 +50,11 @@ df_calc = df_filtrado.copy()
 df_calc.columns = df_calc.columns.str.strip()
 
 df_calc['Setor'] = pd.to_numeric(df_calc['Setor'], errors='coerce').fillna(0).astype(int).astype(str)
-df_calc['Horas_Dec'] = df_calc['Horas Trabalhadas'].apply(extrair_horas) if 'Horas Trabalhadas' in df_calc.columns else 7.33
+df_calc['Horas_Dec'] = (
+    df_calc['Horas Trabalhadas'].apply(extrair_horas)
+    if 'Horas Trabalhadas' in df_calc.columns
+    else pd.Series(7.33, index=df_calc.index)
+)
 
 # Força a existência das colunas e extrai apenas os números (resolve o problema do Km zerado)
 colunas_numericas = ['Viagens', 'Km Total', 'Toneladas', 'Combustível', 'Km Improdutivo', 'Produtividade (t/h)']

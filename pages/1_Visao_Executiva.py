@@ -116,7 +116,7 @@ total_combustivel_calc = rotas["Combustível"].sum()
 ton_viagem_media = total_toneladas_calc / max(total_viagens_calc, 1)
 km_improdutivo_pct = rotas["Km Improdutivo"].sum() / max(total_km_calc, 1)
 km_por_litro = total_km_calc / max(total_combustivel_calc, 1)
-horas_extras_totais = rotas["Horas Trabalhadas"].apply(lambda x: max(0, x - meta_operacional)).sum()
+horas_extras_totais = (rotas["Horas Trabalhadas"] - meta_operacional).clip(lower=0).sum()
 
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Total Toneladas", format_number_br(total_toneladas_calc, 2))
